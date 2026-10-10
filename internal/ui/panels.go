@@ -167,6 +167,11 @@ func (m Model) matrixLines(iw int) []string {
 		if mx.RootRows == 0 {
 			return "-", t.slate
 		}
+		if r.Links[i].Asserted {
+			// An asserted link's authority is not stated anywhere, so
+			// "0/n" would claim it holds nothing.
+			return "?", t.amber
+		}
 		if m.void(i) && fs.settled {
 			return fmt.Sprintf("0/%d", mx.RootRows), t.coral
 		}
@@ -309,7 +314,11 @@ func (m Model) legend(iw int) string {
 	for _, row := range m.report.Matrix.Rows {
 		for _, c := range row.Cells {
 			if c.Kind == chain.CellUnknown || c.Kind == chain.CellOrphan {
-				parts = append(parts, t.amber.Render(g.unknown)+t.muted.Render(" unreadable"))
+				label := "unreadable"
+				if l := m.report.Matrix.UnknownLabel; l != "" {
+					label = m.clean(l)
+				}
+				parts = append(parts, t.amber.Render(g.unknown)+t.muted.Render(" "+label))
 				return "  " + m.clip(strings.Join(parts, "   "), iw-2)
 			}
 		}

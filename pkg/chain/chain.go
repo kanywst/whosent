@@ -449,6 +449,10 @@ type Matrix struct {
 	Extra []SummaryRow
 	// DefaultRow is the row to select when the chain opens.
 	DefaultRow int
+	// UnknownLabel is what the legend calls CellUnknown, such as "not in
+	// the token" for a prior actor whose authority a JWT does not state.
+	// Empty means "unreadable": a link that does not parse.
+	UnknownLabel string
 }
 
 // Row is one thing granted, followed down the chain.

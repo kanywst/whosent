@@ -110,6 +110,10 @@ func (m Model) ruleMarks(l chain.Link) (string, lipgloss.Style) {
 		return m.g.fail + " " + strings.Join(bad, " "), m.t.coral
 	case len(unsure) > 0:
 		return m.g.unchecked + " " + strings.Join(unsure, " "), m.t.amber
+	case l.Asserted:
+		// Nothing failed, but nothing verified it either: a tick here would
+		// draw the issuer's word as a checked link.
+		return m.g.unchecked, m.t.amber
 	}
 	return m.g.pass, m.t.mint
 }

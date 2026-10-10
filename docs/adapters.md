@@ -76,7 +76,7 @@ These are the promises the view relies on and cannot check itself. `chaintest` c
 | Line under the verdict | the scenario's summary, or `Summary` parts |
 | Rail | `Root` (name, `RootRole`, up to two `Details`), each link's `From`, `To`, state, `Depth` pips, `ExpiresAt`, `Remaining` |
 | Timeline (`t`) | `IssuedAt`, `ExpiresAt` |
-| Matrix panel | `Matrix`: `Title` and `Scope`, `Rows` (label, `Origin` above 0 for authority that appeared later, one `Cell` per link, `Lineage`), `RootRows`, `Retained`, `Extra` summary rows. Nil: the findings take the panel |
+| Matrix panel | `Matrix`: `Title` and `Scope`, `Rows` (label, `Origin` above 0 for authority that appeared later, one `Cell` per link, `Lineage`), `RootRows`, `Retained`, `Extra` summary rows, `UnknownLabel` (what the legend calls `CellUnknown`). An asserted link's reach reads `?`, never `0/n`. Nil: the findings take the panel |
 | Findings panel | every finding, worst first, then `CheckedAgainst` |
 | Link inspector | the state, the rule grid, the link's findings, the hop from the link above (`Hops`), then `Sections` |
 | Raw view (`r`) | `Raw` sections |
