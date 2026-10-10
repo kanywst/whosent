@@ -1,13 +1,12 @@
 package ui
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/kanywst/whosent/pkg/diagnose"
+	"github.com/kanywst/whosent/pkg/chain"
 )
 
 // renderInspector is the selected link in full: what it grants and to whom,
@@ -54,7 +53,7 @@ func (m Model) lookBadge(k look) lipgloss.Style {
 	switch k {
 	case lookOK:
 		return m.t.badgeValid
-	case lookUnsure:
+	case lookUnsure, lookAsserted:
 		return m.t.badgeIncomplete
 	case lookDead:
 		return m.t.badgeDead
@@ -100,6 +99,8 @@ func (m Model) linkLines(iw int) []string {
 		state += t.slate.Render(fmt.Sprintf("  link %d above is broken", l.UnreachedBy))
 	case lookUnsure:
 		state += t.amber.Render("  not everything was checked")
+	case lookAsserted:
+		state += t.amber.Render("  only the issuer says so")
 	case lookRevoked:
 		state += t.coral.Render("  and everything below it")
 	case lookBroken:
@@ -108,8 +109,10 @@ func (m Model) linkLines(iw int) []string {
 		state += t.mint.Render("  every check held")
 	}
 	out = append(out, m.clip(state, iw), "")
-	out = append(out, m.section("CHECKS", iw))
-	out = append(out, m.checkGrid(l, iw)...)
+	if len(l.Checks) > 0 {
+		out = append(out, m.section("CHECKS", iw))
+		out = append(out, m.checkGrid(l, iw)...)
+	}
 
 	if fl := l.Findings; len(fl) > 0 {
 		out = append(out, "", m.section("WHY", iw))
@@ -118,79 +121,74 @@ func (m Model) linkLines(iw int) []string {
 		}
 	}
 
-	if m.sel == 0 && r.Sponsor != nil {
-		out = append(out, "", m.section("SPONSOR", iw))
-		sp := r.Sponsor
-		out = append(out, m.kv("human", sp.Subject, t.gold.UnsetBold(), iw)...)
-		out = append(out, m.kv("at", sp.Issuer, t.text, iw)...)
-		if len(sp.AuthenticationMethods) > 0 {
-			out = append(out, m.kv("amr", strings.Join(sp.AuthenticationMethods, ", "), t.text, iw)...)
-		}
-	}
-
 	if m.sel > 0 && m.sel-1 < len(r.Hops) {
 		out = append(out, "", m.section(fmt.Sprintf("VS LINK %d", m.sel-1), iw))
 		out = append(out, m.hopLines(r.Hops[m.sel-1], iw)...)
-	} else if m.sel == 0 && l.Claims != nil {
-		out = append(out, "", m.section("GRANTS", iw))
-		for _, c := range l.Claims.Mandatum.Capabilities {
-			s := m.capLabel(c)
-			if conds := diagnose.CondLabels(c); len(conds) > 0 {
-				s += "  " + strings.Join(conds, "; ")
-			}
-			out = append(out, m.diffLine(g.diffAdded, t.teal, s, iw)...)
-		}
 	}
-
-	out = append(out, "", m.section("ASSERTION", iw))
-	if c := l.Claims; c != nil {
-		out = append(out, m.kv("grants to", c.Subject, t.text, iw)...)
-		out = append(out, m.kv("issued by", c.Issuer, t.text, iw)...)
-		out = append(out, m.kv("audience", c.Audience, t.text, iw)...)
-		rem, alive := remaining(l)
-		exp := clockTime(l.ExpiresAt) + "  (" + rem + ")"
-		es := t.text
-		if !alive {
-			es = t.coral
-		}
-		out = append(out, m.kv("expires", exp, es, iw)...)
-		d := c.Mandatum.MaxDepth
-		dl := fmt.Sprintf("%d more hop%s", d, plural(d))
-		if d == 0 {
-			dl = "no further: may act, may not delegate"
-		}
-		out = append(out, m.kv("delegates", dl, t.text, iw)...)
-		if s := c.Mandatum.Sequence; s != nil {
-			var ids []string
-			for _, con := range s.Constraints {
-				ids = append(ids, con.ID)
-			}
-			b := "unlimited"
-			if s.MaxInvocations > 0 {
-				b = fmt.Sprintf("%d invocations", s.MaxInvocations)
-			}
-			if len(ids) > 0 {
-				b += "; " + strings.Join(ids, ", ")
-			}
-			out = append(out, m.kv("sequence", b, t.text, iw)...)
-		}
-		out = append(out, m.kv("jti", c.ID, t.muted, iw)...)
-		if l.KeySource != "" {
-			out = append(out, m.kv("key", l.KeySource, t.muted, iw)...)
-		}
-	} else {
-		out = append(out, t.coral.Render(m.clip(g.fail+" this link does not parse", iw)))
-		for _, line := range wrap(m.clean(l.ParseError), iw-2) {
-			out = append(out, "  "+t.muted.Render(line))
-		}
+	for _, sec := range l.Sections {
+		out = append(out, "", m.section(m.clean(sec.Title), iw))
+		out = append(out, m.sectionLines(sec.Lines, iw)...)
 	}
-
 	return out
 }
 
-// checkGrid is V1 to V9 in three columns, each with a glyph that says
+// sectionLines draws an adapter's lines.
+func (m Model) sectionLines(lines []chain.Line, iw int) []string {
+	var out []string
+	for _, ln := range lines {
+		style := m.toneOf(ln.Tone)
+		if ln.Digest > 0 {
+			style = m.digestStyle(ln.Digest - 1)
+			if ln.DigestSoft {
+				style = style.UnsetBold()
+			}
+		}
+		value := ln.Value
+		if mark := m.markGlyph(ln.Mark); mark != "" {
+			value = mark + " " + value
+		}
+		switch ln.Kind {
+		case chain.LineKV:
+			out = append(out, m.kv(ln.Key, value, style, iw)...)
+		case chain.LineText:
+			for _, w := range wrap(m.clean(value), max(iw-ln.Indent, 10)) {
+				out = append(out, strings.Repeat(" ", ln.Indent)+style.Render(w))
+			}
+		case chain.LineChange:
+			mark, cs := m.changeMark(ln.Change)
+			out = append(out, m.diffLine(mark, cs, value, iw)...)
+		case chain.LineJSON:
+			out = append(out, m.jsonLines(ln.Value, iw)...)
+		case chain.LineCode:
+			for _, src := range strings.Split(ln.Value, "\n") {
+				for _, w := range wrapStyledPlain(m.clean(src), iw) {
+					out = append(out, style.Render(w))
+				}
+			}
+		case chain.LineBlank:
+			out = append(out, "")
+		}
+	}
+	return out
+}
+
+func (m Model) markGlyph(k chain.Mark) string {
+	switch k {
+	case chain.MarkPass:
+		return m.g.pass
+	case chain.MarkFail:
+		return m.g.fail
+	case chain.MarkUnchecked:
+		return m.g.unchecked
+	case chain.MarkWarn:
+		return m.g.warn
+	}
+	return ""
+}
+
+// checkGrid is every rule in three columns, each with a glyph that says
 // passed, failed, could not run, or was not checked.
-func (m Model) checkGrid(l diagnose.Link, iw int) []string {
+func (m Model) checkGrid(l chain.Link, iw int) []string {
 	cols := 3
 	if iw < 54 {
 		cols = 2
@@ -200,7 +198,8 @@ func (m Model) checkGrid(l diagnose.Link, iw int) []string {
 	line := ""
 	for i, c := range l.Checks {
 		glyph, style := m.statusMark(c)
-		cell := style.Render(glyph) + " " + m.t.text.Render(string(c.Rule)) + " " + m.t.muted.Render(c.Rule.Title())
+		title := m.report.Format.Rule(c.Rule).Title
+		cell := style.Render(glyph) + " " + m.t.text.Render(m.clean(c.Rule)) + " " + m.t.muted.Render(m.clean(title))
 		line += m.fit(cell, cw)
 		if (i+1)%cols == 0 || i == len(l.Checks)-1 {
 			out = append(out, line)
@@ -210,21 +209,21 @@ func (m Model) checkGrid(l diagnose.Link, iw int) []string {
 	return out
 }
 
-func (m Model) statusMark(c diagnose.Check) (string, lipgloss.Style) {
+func (m Model) statusMark(c chain.Check) (string, lipgloss.Style) {
 	t, g := m.t, m.g
 	if c.Simulated && c.Status.Blocking() {
 		return g.simulated, t.coral
 	}
 	switch c.Status {
-	case diagnose.StatusPass:
+	case chain.StatusPass:
 		return g.pass, t.mint
-	case diagnose.StatusFail:
+	case chain.StatusFail:
 		return g.fail, t.coral.Bold(true)
-	case diagnose.StatusError:
+	case chain.StatusError:
 		return g.err, t.coral.Bold(true)
-	case diagnose.StatusUnchecked:
+	case chain.StatusUnchecked:
 		return g.unchecked, t.amber
-	case diagnose.StatusSkipped:
+	case chain.StatusSkipped:
 		return g.skipped, t.slate
 	}
 	return g.na, t.slate
@@ -232,52 +231,28 @@ func (m Model) statusMark(c diagnose.Check) (string, lipgloss.Style) {
 
 // hopLines is the diff between a link and its parent, written like a diff:
 // = kept, ~ narrowed, - dropped, + added, and a widening called out.
-func (m Model) hopLines(h diagnose.Hop, iw int) []string {
+func (m Model) hopLines(h chain.Hop, iw int) []string {
 	t, g := m.t, m.g
 	if !h.Evaluable {
 		return []string{t.amber.Render(m.clip(g.unchecked+" cannot compare: one of the two links does not parse", iw))}
 	}
 	var out []string
-	for _, c := range h.Capabilities {
+	for _, c := range h.Changes {
 		mark, style := m.changeMark(c.Kind)
-		out = append(out, m.diffLine(mark, style, m.capChangeText(c), iw)...)
+		text := m.clean(c.Text)
+		if c.Before != "" {
+			text = m.clean(c.Before) + " " + g.arrow + " " + text
+		}
+		out = append(out, m.diffLine(mark, style, text, iw)...)
 		for _, n := range c.Notes {
 			for _, line := range wrap(m.clean(n), max(iw-6, 10)) {
 				out = append(out, "    "+t.muted.Render(line))
 			}
 		}
 	}
-	for _, v := range []diagnose.ValueChange{h.Expiry, h.MaxDepth, h.Audience} {
-		if v.Text == "" || v.Kind == diagnose.ChangeKept && v.Text == "" {
-			continue
-		}
-		mark, style := m.changeMark(v.Kind)
-		out = append(out, m.diffLine(mark, style, v.Text, iw)...)
-	}
-	if s := h.Sequence; s.Text != "" || len(s.Constraints) > 0 || s.Budget.Text != "" {
-		if s.Budget.Text != "" {
-			mark, style := m.changeMark(s.Budget.Kind)
-			out = append(out, m.diffLine(mark, style, s.Budget.Text, iw)...)
-		}
-		for _, c := range s.Constraints {
-			mark, style := m.changeMark(c.Kind)
-			out = append(out, m.diffLine(mark, style, c.Text, iw)...)
-		}
-		if s.Text != "" && s.Budget.Text == "" && len(s.Constraints) == 0 {
-			mark, style := m.changeMark(s.Kind)
-			out = append(out, m.diffLine(mark, style, s.Text, iw)...)
-		}
-	}
-	// The structural checks between the two, only when one failed: when
-	// they hold, saying so adds nothing the grid did not.
-	for _, c := range []diagnose.Check{h.Commitment, h.DepthStep, h.Custody, h.Sponsor} {
-		if c.Status.Blocking() {
-			out = append(out, m.diffLine(g.diffWidened, t.coral, string(c.Rule)+" "+c.Detail, iw)...)
-		}
-	}
-	if h.Verdict != "" && !m.saidAlready(h.Child, h.Verdict) {
+	if h.Verdict != "" {
 		out = append(out, "")
-		for _, line := range wrap(m.clean("mandatum: "+h.Verdict), iw-2) {
+		for _, line := range wrap(m.clean(h.Verdict), iw-2) {
 			out = append(out, "  "+t.coral.Render(line))
 		}
 	}
@@ -287,57 +262,21 @@ func (m Model) hopLines(h diagnose.Hop, iw int) []string {
 	return out
 }
 
-// capChangeText says what happened to one capability across a hop, in the
-// same labels the matrix uses. The engine's own sentence is the fallback
-// when either side is missing.
-func (m Model) capChangeText(c diagnose.CapChange) string {
-	g := m.g
-	switch {
-	case c.Kind == diagnose.ChangeKept && c.Child != nil:
-		return m.capLabel(*c.Child)
-	case c.Kind == diagnose.ChangeNarrowed && c.Parent != nil && c.Child != nil:
-		p, ch := m.capLabel(*c.Parent), m.capLabel(*c.Child)
-		if p == ch {
-			return p + "  narrowed"
-		}
-		return p + " " + g.arrow + " " + ch
-	case c.Kind == diagnose.ChangeDropped && c.Parent != nil:
-		return m.capLabel(*c.Parent) + "  dropped"
-	case c.Kind == diagnose.ChangeWidened && c.Child != nil:
-		return m.capLabel(*c.Child) + "  not covered by the parent's grant"
-	case c.Kind == diagnose.ChangeAdded && c.Child != nil:
-		return m.capLabel(*c.Child)
-	}
-	return c.Text
-}
-
-// saidAlready reports whether link i already has a finding carrying text,
-// so the same sentence is not printed twice in one panel.
-func (m Model) saidAlready(i int, text string) bool {
-	if i < 0 || i >= len(m.report.Links) {
-		return false
-	}
-	for _, f := range m.report.Links[i].Findings {
-		if strings.Contains(f.Detail, text) {
-			return true
-		}
-	}
-	return false
-}
-
-func (m Model) changeMark(k diagnose.ChangeKind) (string, lipgloss.Style) {
+func (m Model) changeMark(k chain.ChangeKind) (string, lipgloss.Style) {
 	t, g := m.t, m.g
 	switch k {
-	case diagnose.ChangeKept:
+	case chain.ChangeKept:
 		return g.diffKept, t.muted
-	case diagnose.ChangeNarrowed:
+	case chain.ChangeNarrowed:
 		return g.diffNarrowed, t.blue
-	case diagnose.ChangeDropped:
+	case chain.ChangeDropped:
 		return g.diffDropped, t.slate
-	case diagnose.ChangeAdded:
+	case chain.ChangeAdded:
 		return g.diffAdded, t.teal
-	case diagnose.ChangeWidened:
+	case chain.ChangeWidened:
 		return g.diffWidened, t.coral.Bold(true)
+	case chain.ChangeInfo:
+		return g.info, t.muted
 	}
 	return "?", t.amber
 }
@@ -355,44 +294,20 @@ func (m Model) diffLine(mark string, style lipgloss.Style, text string, iw int) 
 	return out
 }
 
-// rawLines is the assertion as it was signed: header, claims, and the two
-// digests that tie it into the chain. Each link's digest has its own colour,
-// and a parent commitment takes the colour of the link it names, so a
-// spliced link is the one whose colour matches nothing above it.
+// rawLines is the link as it was signed, decoded: whatever sections the
+// format has for it (digests, header, claims, source code).
 func (m Model) rawLines(iw int) []string {
-	r, t, g := m.report, m.t, m.g
-	l := r.Links[m.sel]
+	l := m.report.Links[m.sel]
+	if len(l.Raw) == 0 {
+		return []string{m.t.muted.Render("nothing raw to show for this link")}
+	}
 	var out []string
-	out = append(out, m.section("DIGESTS", iw))
-	out = append(out, m.kv("this link", l.Digest, m.digestStyle(m.sel), iw)...)
-	if c := l.Claims; c != nil && c.Mandatum.Parent != "" {
-		match := -1
-		for j := 0; j < m.sel; j++ {
-			if r.Links[j].Digest == c.Mandatum.Parent {
-				match = j
-			}
+	for i, sec := range l.Raw {
+		if i > 0 {
+			out = append(out, "")
 		}
-		if match >= 0 {
-			out = append(out, m.kv("parent", c.Mandatum.Parent, m.digestStyle(match), iw)...)
-			out = append(out, m.kv("", fmt.Sprintf("%s link %d", g.pass, match), m.digestStyle(match).UnsetBold(), iw)...)
-		} else {
-			out = append(out, m.kv("parent", c.Mandatum.Parent, t.coral.Bold(true), iw)...)
-			out = append(out, m.kv("", g.fail+" matches no link above: this link was issued against another chain", t.coral, iw)...)
-		}
-	} else if l.Claims != nil {
-		out = append(out, m.kv("parent", "none: this is the sponsor's grant", t.muted, iw)...)
-	}
-
-	out = append(out, "", m.section("HEADER", iw))
-	if l.Header != nil {
-		out = append(out, m.jsonLines(l.Header, iw)...)
-	}
-	if l.Claims != nil {
-		out = append(out, "", m.section("CLAIMS", iw))
-		out = append(out, m.jsonLines(l.Claims, iw)...)
-	} else if l.Untrusted != nil {
-		out = append(out, "", m.section("CLAIMS (UNTRUSTED: did not parse strictly)", iw))
-		out = append(out, m.jsonLines(l.Untrusted, iw)...)
+		out = append(out, m.section(m.clean(sec.Title), iw))
+		out = append(out, m.sectionLines(sec.Lines, iw)...)
 	}
 	return out
 }
@@ -404,14 +319,11 @@ func (m Model) digestStyle(i int) lipgloss.Style {
 	return m.t.digests[i%len(m.t.digests)]
 }
 
-// jsonLines pretty-prints v with keys and values in different colours.
-func (m Model) jsonLines(v any, iw int) []string {
-	b, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return []string{m.t.coral.Render(err.Error())}
-	}
+// jsonLines draws an indented JSON document with keys and values in
+// different colours.
+func (m Model) jsonLines(doc string, iw int) []string {
 	var out []string
-	for _, line := range strings.Split(string(b), "\n") {
+	for _, line := range strings.Split(doc, "\n") {
 		line = m.clean(line)
 		indent := len(line) - len(strings.TrimLeft(line, " "))
 		body := line[indent:]

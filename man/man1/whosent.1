@@ -68,11 +68,14 @@ parent by a digest over the parent's exact bytes. Input is limited to 1 MiB and
 Evaluate every rule for every link and print a report: the verdict, a rule grid
 per link, every finding, and how authority narrows at each hop. With
 \fB\-\-json\fR the report is printed as JSON (schema
-.BR whosent.report/v1 )
-and nothing else reaches standard output.
+.BR whosent.chain/v1 ,
+the same for every format) and nothing else reaches standard output; with
+\fB\-\-native\fR as well, the format's own report is printed instead
+(Mandatum's is
+.BR whosent.report/v1 ).
 .TP
 .B ask
-Check a request against the chain with mandatum's own matcher, at every link,
+Check a request against the chain with its format's own matcher, at every link,
 so you can see where authority for it ends, or where it appears from nowhere.
 The answer is labelled
 .B AUTHORITATIVE
@@ -113,6 +116,11 @@ Print whosent's version and the version of the Mandatum reference verifier
 it embeds.
 .SH OPTIONS
 .TP
+.BI \-\-format " NAME"
+The chain's format, when the input could be more than one: \fBmandatum\fR.
+By default the format is recognised from the input, and an input two formats
+could claim is refused rather than guessed at.
+.TP
 .BI \-\-trust " FILE"
 A trust file mapping issuers to their key documents:
 .B {"issuers": {"ISSUER": {"jwks_file": "PATH"} | {"jwks_url": "https://..."}}}.
@@ -124,6 +132,10 @@ reads them: Ed25519 only, and a document it would refuse is refused here.
 URLs must be https, including after any redirect; a fetch is capped at 1 MiB
 and 5 seconds. Issuers come only from these options, never from the chain, so
 a chain cannot make whosent fetch anything.
+.TP
+.BI \-\-root\-key " KEY"
+A public key a chain may be rooted in, as hex or a file, for formats whose
+root is a key rather than a named issuer. Repeatable.
 .TP
 .BI \-\-revocations " FILE"
 A published compact revocation set (specification section 7.1).
@@ -139,6 +151,13 @@ stale set makes revocation unknown, which denies.
 .BI \-\-audience " AUDIENCE"
 The resource server the chain is presented to; checks rule V9. An empty value
 is an error.
+.TP
+.BI \-\-fact " FACT"
+A fact an authorizer supplies to evaluate a chain's checks against, for
+formats whose links carry checks. Repeatable.
+.TP
+.BI \-\-authorizer " FILE"
+A file of authorizer code to evaluate a chain's checks against.
 .TP
 .BI \-\-at " TIME"
 Evaluate at this time instead of now: RFC 3339, unix seconds, \fBnow\fR, or a
@@ -160,7 +179,11 @@ ASCII glyphs only. Also set by \fBWHOSENT_ASCII=1\fR.
 .SH CHECK OPTIONS
 .TP
 .B \-\-json
-Print the report as JSON (schema \fBwhosent.report/v1\fR).
+Print the report as JSON (schema \fBwhosent.chain/v1\fR).
+.TP
+.B \-\-native
+With \fB\-\-json\fR, print the format's own report instead (Mandatum's
+schema is \fBwhosent.report/v1\fR).
 .TP
 .B \-\-strict
 Treat INCOMPLETE as a failure (exit 1).
@@ -185,14 +208,15 @@ it parses, so \fBargs.n=3\fR is a number. Repeatable.
 .TP
 .B \-\-attr\-from\-args
 Map a tools/call request's arguments to \fBargs.\fR\fIname\fR attributes. This
-mapping is whosent's assumption, not something mandatum's enforcement point
-does, and a warning says so.
+mapping is whosent's assumption, not something an enforcement point does, and
+a warning says so.
 .TP
 .BI \-\-request " FILE"
 Read the request from a JSON file instead.
 .TP
 .B \-\-json
-Print the answer as JSON (schema \fBwhosent.ask/v1\fR).
+Print the answer as JSON, in the format's own schema (\fBwhosent.ask/v1\fR for
+Mandatum).
 .TP
 .B \-\-strict
 Treat a CONDITIONAL answer as not permitted.

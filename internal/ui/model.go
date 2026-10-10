@@ -2,13 +2,18 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/kanywst/whosent/pkg/diagnose"
+	"github.com/kanywst/whosent/pkg/chain"
 )
+
+// errNoChain is shown for a session with nothing to evaluate, which only a
+// programming error produces.
+var errNoChain = errors.New("no chain to show")
 
 // overlay is what, if anything, is drawn over the main screen.
 type overlay int
@@ -42,10 +47,11 @@ type Model struct {
 	// the time scrub has moved from it.
 	base   time.Time
 	offset time.Duration
-	// sims are the jtis whose revocation is being simulated.
+	// sims are the links' revocation identifiers whose revocation is being
+	// simulated.
 	sims []string
 
-	report *diagnose.Report
+	report *chain.Chain
 	err    error
 
 	sel    int // the selected link
@@ -57,7 +63,7 @@ type Model struct {
 
 	overlay overlay
 	ask     askForm
-	answer  *diagnose.Trace
+	answer  *chain.AskResult
 
 	width, height int
 	ready         bool
@@ -66,8 +72,8 @@ type Model struct {
 	anim   anim
 }
 
-// New builds the view for cfg. The first session is diagnosed immediately,
-// so a model is never on screen without a report.
+// New builds the view for cfg. The first session is evaluated immediately,
+// so a model is never on screen without a chain.
 func New(cfg Config) Model {
 	m := Model{
 		cfg:    cfg,
@@ -94,7 +100,9 @@ func (m Model) session() Session {
 func (m Model) open(i int) Model {
 	m.cur = i
 	s := m.session()
-	m.base = s.Options.At
+	if s.Chain != nil {
+		m.base = s.Chain.Info().At
+	}
 	if m.base.IsZero() {
 		m.base = time.Now()
 	}
@@ -102,19 +110,19 @@ func (m Model) open(i int) Model {
 	m.sel, m.row, m.scroll = 0, 0, 0
 	m.raw, m.clock = false, false
 	m.overlay, m.answer = overlayNone, nil
-	m = m.diagnose()
+	m = m.evaluate()
 	if r := m.report; r != nil && r.BreakAt >= 0 {
 		// Open on the link that broke: it is the first thing anyone asks.
 		m.sel = r.BreakAt
 	}
-	if r := m.report; r != nil {
-		m.row = defaultRow(r)
+	if r := m.report; r != nil && r.Matrix != nil {
+		m.row = r.Matrix.DefaultRow
 	}
 	m.anim = m.flowIn()
 	return m
 }
 
-// diagnose re-runs the engine at the current time with the current
+// evaluate re-runs the format adapter at the current time with the current
 // simulations. The time scrub and the revocation simulation both come
 // through here, so they always show exactly what `whosent check` would say
 // with the same inputs.
@@ -124,25 +132,60 @@ func (m Model) open(i int) Model {
 // 24h limit inside the range; no MaxAge override is needed, and none is made.
 // For a real chain the set's age at the scrubbed time is a genuine fact and
 // is shown as one.
-func (m Model) diagnose() Model {
+func (m Model) evaluate() Model {
 	s := m.session()
-	opts := s.Options.WithAt(m.base.Add(m.offset)).WithSimulatedRevocations(m.sims)
-	r, err := diagnose.Diagnose(m.ctx, s.Links, opts)
+	if s.Chain == nil {
+		m.report, m.err = nil, errNoChain
+		return m
+	}
+	r, err := s.Chain.Evaluate(m.ctx, chain.EvalOptions{At: m.base.Add(m.offset), SimRevoked: m.sims})
+	if r != nil {
+		// Evaluate returns a chain the caller owns, so it is scrubbed in
+		// place.
+		scrub(r)
+	}
 	m.report, m.err = r, err
 	if r != nil {
-		r.Input = s.Input
 		m.sel = clamp(m.sel, 0, max(len(r.Links)-1, 0))
-		m.row = clamp(m.row, 0, max(len(r.Matrix.Rows)-1, 0))
+		m.row = clamp(m.row, 0, max(m.rows()-1, 0))
 	}
 	return m
 }
 
-// redo re-diagnoses after the time or the simulations changed, and flashes
+// rows is how many rows the authority matrix has.
+func (m Model) rows() int {
+	if m.report == nil || m.report.Matrix == nil {
+		return 0
+	}
+	return len(m.report.Matrix.Rows)
+}
+
+// caps are the interactive features the format on screen supports.
+func (m Model) caps() chain.Capabilities {
+	if m.report != nil {
+		return m.report.Format.Caps
+	}
+	if s := m.session(); s.Chain != nil {
+		return s.Chain.Info().Format.Caps
+	}
+	return chain.Capabilities{}
+}
+
+// asker is the session's question answerer, when it has one.
+func (m Model) asker() (chain.Asker, bool) {
+	if !m.caps().Ask {
+		return nil, false
+	}
+	a, ok := m.session().Chain.(chain.Asker)
+	return a, ok
+}
+
+// redo re-evaluates after the time or the simulations changed, and flashes
 // every link whose state moved, so the consequence of the change is where
 // the eye already is.
 func (m Model) redo() Model {
 	before := m.report
-	m = m.diagnose()
+	m = m.evaluate()
 	changed := map[int]bool{}
 	if before != nil && m.report != nil && len(before.Links) == len(m.report.Links) {
 		for i := range m.report.Links {
@@ -173,35 +216,14 @@ func clamp(v, lo, hi int) int {
 // toggleSim adds or removes a simulated revocation of the selected link.
 func (m Model) toggleSim() Model {
 	r := m.report
-	if r == nil || m.sel >= len(r.Links) || r.Links[m.sel].Claims == nil {
+	if r == nil || !m.caps().RevokeSim || m.sel >= len(r.Links) || r.Links[m.sel].RevokeID == "" {
 		return m
 	}
-	jti := r.Links[m.sel].Claims.ID
+	jti := r.Links[m.sel].RevokeID
 	if i := slices.Index(m.sims, jti); i >= 0 {
 		m.sims = slices.Delete(slices.Clone(m.sims), i, i+1)
 	} else {
 		m.sims = append(slices.Clone(m.sims), jti)
 	}
 	return m.redo()
-}
-
-// defaultRow is the authority row to open on: authority that appeared from
-// nowhere if any did, since that is the story; otherwise the first grant
-// that reaches the leaf, so that asking about the selected row (a) asks
-// about something the chain was actually built to do.
-func defaultRow(r *diagnose.Report) int {
-	for i, row := range r.Matrix.Rows {
-		if row.Origin > 0 {
-			return i
-		}
-	}
-	leaf := len(r.Links) - 1
-	for i, row := range r.Matrix.Rows {
-		if leaf >= 0 && leaf < len(row.Cells) {
-			if k := row.Cells[leaf].Kind; k == diagnose.CellHeld || k == diagnose.CellNarrowed {
-				return i
-			}
-		}
-	}
-	return 0
 }

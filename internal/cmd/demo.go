@@ -11,11 +11,19 @@ import (
 	"github.com/kanywst/whosent/internal/demo"
 	"github.com/kanywst/whosent/internal/ui"
 	"github.com/kanywst/whosent/internal/version"
+	"github.com/kanywst/whosent/pkg/chain"
 )
 
-func newDemo(f *flags, stdout io.Writer) *cobra.Command {
+func newDemo(f *flags, reg *chain.Registry, stdout io.Writer) *cobra.Command {
 	var emit string
 	var fixed, list, force bool
+	names := func() []string {
+		var out []string
+		for _, s := range reg.Scenarios() {
+			out = append(out, s.Name)
+		}
+		return out
+	}
 	c := &cobra.Command{
 		Use:   "demo [SCENARIO]",
 		Short: "Mint example chains and open them, or write them out as fixtures",
@@ -24,24 +32,19 @@ interactive view. With no scenario it tours them all; n and p switch between
 them. Each scenario brings its own keys, revocation set and audience, so the
 input flags do not apply.
 
-With --emit DIR it writes one scenario's files instead: chain.json, jwks/,
-trust.json, revocation.json, revoked-jtis.txt, and a manifest.json holding
-the exact whosent check command and what it must report. Emitted fixtures use
-a fixed base time, so they are the same bytes on every run.
+With --emit DIR it writes one scenario's files instead, with a manifest.json
+holding the exact whosent check command and what it must report. Emitted
+fixtures use a fixed base time, so they are the same bytes on every run.
 
-Scenarios: ` + fmt.Sprint(demo.Names()),
+Scenarios: ` + fmt.Sprint(names()),
 		Args: cobra.MaximumNArgs(1),
 		ValidArgsFunction: func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-			return demo.Names(), cobra.ShellCompDirectiveNoFileComp
+			return names(), cobra.ShellCompDirectiveNoFileComp
 		},
 		RunE: func(_ *cobra.Command, args []string) error {
 			if list {
-				for _, n := range demo.Names() {
-					s, err := demo.Build(n, demo.FixedBase)
-					if err != nil {
-						return err
-					}
-					_, _ = fmt.Fprintf(stdout, "%-11s %s\n", n, s.Title)
+				for _, s := range reg.Scenarios() {
+					_, _ = fmt.Fprintf(stdout, "%-18s %-9s %s\n", s.Name, s.Format, s.Title)
 				}
 				return nil
 			}
@@ -49,15 +52,18 @@ Scenarios: ` + fmt.Sprint(demo.Names()),
 				if len(args) == 0 {
 					return errors.New("--emit writes one scenario; name it, such as `whosent demo --emit out widened`")
 				}
-				s, err := demo.Build(args[0], demo.FixedBase)
+				s, err := reg.Scenario(args[0])
 				if err != nil {
 					return err
 				}
-				m, err := s.Emit(emit, force)
+				if s.Emit == nil {
+					return fmt.Errorf("the %s scenario has no fixture files to write", s.Name)
+				}
+				command, err := s.Emit(emit, force)
 				if err != nil {
 					return err
 				}
-				printer(stdout)("wrote %s to %s\ncheck it with:\n  cd %s && %s\n", s.Name, emit, emit, m.Command)
+				printer(stdout)("wrote %s to %s\ncheck it with:\n  cd %s && %s\n", s.Name, emit, emit, command)
 				return nil
 			}
 
@@ -68,19 +74,21 @@ Scenarios: ` + fmt.Sprint(demo.Names()),
 			if fixed {
 				base = demo.FixedBase
 			}
-			names := demo.Names()
+			scenarios := reg.Scenarios()
 			if len(args) == 1 {
-				names = []string{args[0]}
-			}
-			var sessions []ui.Session
-			for _, n := range names {
-				s, err := demo.Build(n, base)
+				s, err := reg.Scenario(args[0])
 				if err != nil {
 					return err
 				}
-				sessions = append(sessions, ui.Session{
-					Name: s.Name, Title: s.Title, Summary: s.Summary, Links: s.Links, Options: s.Options,
-				})
+				scenarios = []chain.Scenario{s}
+			}
+			var sessions []ui.Session
+			for _, sc := range scenarios {
+				sess, err := sc.Open(base)
+				if err != nil {
+					return fmt.Errorf("minting %s: %w", sc.Name, err)
+				}
+				sessions = append(sessions, ui.Session{Name: sc.Name, Title: sc.Title, Summary: sc.Summary, Chain: sess})
 			}
 			return ui.Run(ui.Config{Sessions: sessions, Motion: !f.noMotion, ASCII: f.ascii || asciiFromEnv()})
 		},

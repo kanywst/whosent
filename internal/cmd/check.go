@@ -4,15 +4,14 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/kanywst/whosent/pkg/diagnose"
+	"github.com/kanywst/whosent/pkg/chain"
 )
 
-func newCheck(f *flags, stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
-	var asJSON, strict bool
+func newCheck(f *flags, reg *chain.Registry, stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
+	var asJSON, native, strict bool
 	c := &cobra.Command{
 		Use:   "check [FILE|-]",
 		Short: "Report on a chain without the interactive view",
@@ -23,42 +22,55 @@ Exit status:
   1   INVALID: a rule failed, or could not be evaluated (an enforcement point denies)
   2   INCOMPLETE: nothing failed, but something was not checked (1 with --strict)
   3   the command line or an input file is wrong
-  70  this tool and mandatum disagree about the chain (a bug in whosent; please report it)`,
+  70  this tool and the format's reference implementation disagree about the chain
+      (a bug in whosent; please report it)`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			in, opts, err := f.load(cmd, args, stdin)
+			if native && !asJSON {
+				return fmt.Errorf("--native picks the JSON document; pass --json as well")
+			}
+			s, _, err := f.load(cmd, reg, args, stdin)
 			if err != nil {
 				return err
 			}
-			r, err := diagnoseInput(cmd.Context(), in, opts)
+			c, err := evaluate(cmd.Context(), s)
 			if err != nil {
 				return err
 			}
-			if asJSON {
-				if err := writeJSON(stdout, r.JSON()); err != nil {
+			switch {
+			case asJSON && native:
+				if c.Native == nil {
+					return fmt.Errorf("the %s format has no report of its own beyond %s", c.Format.Name, chain.SchemaVersion)
+				}
+				if err := writeJSON(stdout, c.Native); err != nil {
 					return err
 				}
-			} else {
-				writeReport(stdout, r)
+			case asJSON:
+				if err := writeJSON(stdout, c.JSON()); err != nil {
+					return err
+				}
+			default:
+				writeReport(stdout, c)
 			}
-			if !r.Library.Consistent {
-				printer(stderr)("whosent: internal inconsistency: %s\n", r.Library.Mismatch)
+			if c.Inconsistency != nil {
+				printer(stderr)("whosent: internal inconsistency: %s\n", c.Inconsistency.Detail)
 			}
-			return exitError{exitCode(r, strict)}
+			return exitError{exitCode(c, strict)}
 		},
 	}
-	c.Flags().BoolVar(&asJSON, "json", false, "print the report as JSON (schema "+diagnose.SchemaVersion+")")
+	c.Flags().BoolVar(&asJSON, "json", false, "print the report as JSON (schema "+chain.SchemaVersion+")")
+	c.Flags().BoolVar(&native, "native", false, "with --json, print the format's own report instead, such as Mandatum's whosent.report/v1")
 	c.Flags().BoolVar(&strict, "strict", false, "treat INCOMPLETE as a failure (exit 1)")
 	return c
 }
 
-func exitCode(r *diagnose.Report, strict bool) int {
+func exitCode(c *chain.Chain, strict bool) int {
 	switch {
-	case !r.Library.Consistent:
+	case c.Inconsistency != nil:
 		return ExitInconsistent
-	case r.Verdict == diagnose.VerdictValid:
+	case c.Verdict == chain.VerdictValid:
 		return ExitValid
-	case r.Verdict == diagnose.VerdictIncomplete && !strict:
+	case c.Verdict == chain.VerdictIncomplete && !strict:
 		return ExitIncomplete
 	}
 	return ExitInvalid
@@ -66,116 +78,123 @@ func exitCode(r *diagnose.Report, strict bool) int {
 
 // glyph is a check's mark in the human report. Every status has its own
 // mark, so the report reads the same without colour.
-func glyph(s diagnose.Status) string {
+func glyph(s chain.Status) string {
 	switch s {
-	case diagnose.StatusPass:
+	case chain.StatusPass:
 		return "✓"
-	case diagnose.StatusFail:
+	case chain.StatusFail:
 		return "✗"
-	case diagnose.StatusError:
+	case chain.StatusError:
 		return "!"
-	case diagnose.StatusUnchecked:
+	case chain.StatusUnchecked:
 		return "?"
-	case diagnose.StatusSkipped:
+	case chain.StatusSkipped:
 		return "-"
 	}
 	return "·"
 }
 
-func severityGlyph(s diagnose.Severity) string {
+func severityGlyph(s chain.Severity) string {
 	switch s {
-	case diagnose.SeverityFail:
+	case chain.SeverityFail:
 		return "✗"
-	case diagnose.SeverityError:
+	case chain.SeverityError:
 		return "!"
-	case diagnose.SeverityUnchecked:
+	case chain.SeverityUnchecked:
 		return "?"
-	case diagnose.SeverityWarn:
+	case chain.SeverityWarn:
 		return "▲"
 	}
 	return "i"
 }
 
-func verdictLine(r *diagnose.Report) string {
-	switch r.Verdict {
-	case diagnose.VerdictValid:
+func verdictLine(c *chain.Chain) string {
+	switch c.Verdict {
+	case chain.VerdictValid:
 		return "✅ VALID: every rule checked for every link, and the chain holds"
-	case diagnose.VerdictIncomplete:
+	case chain.VerdictIncomplete:
 		return "⚠️  INCOMPLETE: nothing failed, but some rules were not checked, so nothing is vouched for"
 	}
-	if r.BreakAt >= 0 {
-		return fmt.Sprintf("❌ INVALID: the chain breaks at link %d, and no authority reaches below it", r.BreakAt)
+	if c.BreakAt >= 0 {
+		return fmt.Sprintf("❌ INVALID: the chain breaks at link %d, and no authority reaches below it", c.BreakAt)
 	}
 	return "❌ INVALID: the chain grants nothing"
 }
 
-func principal(id string) string {
-	if s := diagnose.Short(id); s != id {
-		return s
+// linkName is "from → to", or what to say when the link was unreadable.
+func linkName(l chain.Link) string {
+	if !l.Readable {
+		return "(does not parse)"
 	}
-	return id
+	from, to := l.From, l.To
+	if from == "" {
+		from = "?"
+	}
+	if to == "" {
+		to = "?"
+	}
+	return from + " → " + to
 }
 
-func writeReport(w io.Writer, r *diagnose.Report) {
+func writeReport(w io.Writer, c *chain.Chain) {
 	p := printer(w)
 
-	head := fmt.Sprintf("=== %s · %d links", r.Input.Source, len(r.Links))
-	if len(r.Links) == 1 {
-		head = fmt.Sprintf("=== %s · 1 link", r.Input.Source)
+	head := fmt.Sprintf("=== %s · %d links", c.Source, len(c.Links))
+	if len(c.Links) == 1 {
+		head = fmt.Sprintf("=== %s · 1 link", c.Source)
 	}
-	if s := r.Sponsor; s != nil {
-		head += fmt.Sprintf(" · sponsor %s via %s", s.Subject, s.Issuer)
-		if len(s.AuthenticationMethods) > 0 {
-			head += " (" + strings.Join(s.AuthenticationMethods, "+") + ")"
-		}
+	if c.Format.Name != "" {
+		head += " · " + c.Format.Name
+	}
+	if c.Describe != "" {
+		head += " · " + c.Describe
 	}
 	p("%s\n", head)
-	aud := "not checked"
-	if r.AudienceChecked {
-		aud = r.Audience
+	if c.Context != "" {
+		p("    %s\n", c.Context)
 	}
-	p("    at %s · skew %s · audience %s\n", r.At.UTC().Format(time.RFC3339), r.Skew, aud)
-	if len(r.Simulated) > 0 {
-		p("    ⊘ simulating revocation of %s\n", strings.Join(r.Simulated, ", "))
+	if len(c.Simulated) > 0 {
+		p("    ⊘ simulating revocation of %s\n", strings.Join(c.Simulated, ", "))
 	}
-	if r.Input.Reversed {
+	if c.Reversed {
 		p("    reversed on request (--reverse)\n")
 	}
-	p("\n%s\n", verdictLine(r))
-	if !r.Library.Consistent {
-		p("\n‼️  INTERNAL INCONSISTENCY: %s\n    mandatum's verdict stands; this is a bug in whosent.\n", r.Library.Mismatch)
+	p("\n%s\n", verdictLine(c))
+	if c.Inconsistency != nil {
+		p("\n‼️  INTERNAL INCONSISTENCY: %s\n    the %s reference implementation's verdict stands; this is a bug in whosent.\n",
+			c.Inconsistency.Detail, c.Format.Name)
 	}
 
-	if len(r.Links) > 0 {
+	if len(c.Links) > 0 {
 		p("\n  #  %-34s", "issuer → subject")
-		for _, rule := range diagnose.Rules {
-			p(" %s", rule)
+		for _, r := range c.Format.Rules {
+			p(" %s", r.ID)
 		}
 		p("\n")
-		for _, l := range r.Links {
-			name := "(does not parse)"
-			if l.Claims != nil {
-				name = principal(l.Claims.Issuer) + " → " + principal(l.Claims.Subject)
-			}
+		for _, l := range c.Links {
+			name := linkName(l)
 			if len([]rune(name)) > 34 {
 				name = string([]rune(name)[:33]) + "…"
 			}
 			p("  %d  %-34s", l.Index, name)
-			for _, c := range l.Checks {
-				p("  %s", glyph(c.Status))
+			for _, r := range c.Format.Rules {
+				// Each mark sits under the end of its rule's name.
+				p(" %s%s", strings.Repeat(" ", max(len([]rune(r.ID))-1, 0)), glyph(l.Check(r.ID).Status))
 			}
 			switch {
 			case l.Unreached:
 				p("   (no authority reaches here)")
 			case l.Revoked && l.RevokedSimulated:
 				p("   ⊘ revoked (simulated)")
+			case l.Asserted && l.State != chain.LinkBroken:
+				p("   (asserted by the issuer, not verified)")
 			}
 			p("\n")
 		}
 		p("     ✓ pass  ✗ fail  ! could not evaluate  ? not checked  - skipped  · does not apply\n")
 	}
 
-	findings := r.Findings()
+	findings := c.Findings()
 	if len(findings) > 0 {
 		p("\nFindings\n")
 		for _, f := range findings {
@@ -183,7 +202,7 @@ func writeReport(w io.Writer, r *diagnose.Report) {
 			if f.Link >= 0 {
 				where = fmt.Sprintf("link %d", f.Link)
 			}
-			rule := string(f.Rule)
+			rule := f.Rule
 			if rule == "" {
 				rule = "input"
 			}
@@ -202,80 +221,58 @@ func writeReport(w io.Writer, r *diagnose.Report) {
 		}
 	}
 
-	if len(r.Hops) > 0 {
+	if len(c.Hops) > 0 {
 		p("\nHow authority narrows\n")
-		for _, h := range r.Hops {
+		for _, h := range c.Hops {
 			from, to := "?", "?"
-			if c := r.Links[h.Parent].Claims; c != nil {
-				from = principal(c.Subject)
+			if h.Parent >= 0 && h.Parent < len(c.Links) && c.Links[h.Parent].To != "" {
+				from = c.Links[h.Parent].To
 			}
-			if c := r.Links[h.Child].Claims; c != nil {
-				to = principal(c.Subject)
+			if h.Child >= 0 && h.Child < len(c.Links) && c.Links[h.Child].To != "" {
+				to = c.Links[h.Child].To
 			}
 			p("  %d → %d  %s → %s\n", h.Parent, h.Child, from, to)
 			if !h.Evaluable {
 				p("      cannot compare: a link of this pair does not parse\n")
 				continue
 			}
-			for _, c := range h.Capabilities {
-				p("      %s %s\n", changeMark(c.Kind), c.Text)
-				for _, n := range c.Notes {
+			changes := h.Summary
+			if changes == nil {
+				changes = h.Changes
+			}
+			for _, ch := range changes {
+				text := ch.Text
+				if ch.Before != "" {
+					text = ch.Before + " → " + text
+				}
+				p("      %s %s\n", changeMark(ch.Kind), text)
+				for _, n := range ch.Notes {
 					p("          %s\n", n)
 				}
-			}
-			for _, v := range []diagnose.ValueChange{h.Expiry, h.MaxDepth, h.Sequence.Budget} {
-				if v.Text != "" {
-					p("      %s %s\n", changeMark(v.Kind), v.Text)
-				}
-			}
-			for _, c := range h.Sequence.Constraints {
-				if c.Kind != diagnose.ChangeKept {
-					p("      %s %s\n", changeMark(c.Kind), c.Text)
-				}
-			}
-			if h.Audience.Kind == diagnose.ChangeWidened {
-				p("      %s %s\n", changeMark(h.Audience.Kind), h.Audience.Text)
 			}
 		}
 		p("      = kept  ~ narrowed  - dropped  + added  ✗ widened (violation)\n")
 	}
 
-	var missing []string
-	cnt := r.Counts()
-	if cnt[diagnose.SeverityUnchecked] > 0 {
-		seen := map[diagnose.Rule]bool{}
-		for _, f := range findings {
-			if f.Severity == diagnose.SeverityUnchecked {
-				seen[f.Rule] = true
-			}
-		}
-		if seen[diagnose.V3] {
-			missing = append(missing, "signatures (--trust or --jwks)")
-		}
-		if seen[diagnose.V8] {
-			missing = append(missing, "revocation (--revocations)")
-		}
-		if seen[diagnose.V9] {
-			missing = append(missing, "audience (--audience)")
-		}
-	}
-	if len(missing) > 0 {
-		p("\nNot checked: %s\n", strings.Join(missing, ", "))
+	if len(c.Missing) > 0 {
+		p("\nNot checked: %s\n", strings.Join(c.Missing, ", "))
 	}
 }
 
-func changeMark(k diagnose.ChangeKind) string {
+func changeMark(k chain.ChangeKind) string {
 	switch k {
-	case diagnose.ChangeKept:
+	case chain.ChangeKept:
 		return "="
-	case diagnose.ChangeNarrowed:
+	case chain.ChangeNarrowed:
 		return "~"
-	case diagnose.ChangeDropped:
+	case chain.ChangeDropped:
 		return "-"
-	case diagnose.ChangeAdded:
+	case chain.ChangeAdded:
 		return "+"
-	case diagnose.ChangeWidened:
+	case chain.ChangeWidened:
 		return "✗"
+	case chain.ChangeInfo:
+		return "i"
 	}
 	return "?"
 }

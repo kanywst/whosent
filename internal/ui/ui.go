@@ -4,12 +4,12 @@ package ui
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/kanywst/whosent/pkg/diagnose"
+	"github.com/kanywst/whosent/pkg/chain"
 )
 
-// Session is one chain to show, with the inputs it is checked against. The
-// view re-runs diagnose.Diagnose on it as the user scrubs time or simulates
-// revocations, so it carries the inputs rather than a finished report.
+// Session is one chain to show. The view evaluates it again as the user
+// scrubs time or simulates revocations, so it holds the format adapter's
+// session, which carries the inputs, rather than a finished result.
 type Session struct {
 	// Name is a short identifier, such as a demo scenario's name or the
 	// input file.
@@ -17,9 +17,8 @@ type Session struct {
 	// Title and Summary describe the chain, for a demo scenario.
 	Title   string
 	Summary string
-	Links   [][]byte
-	Options diagnose.Options
-	Input   diagnose.InputInfo
+	// Chain is the chain and its inputs, in whatever format.
+	Chain chain.Session
 }
 
 // Config is everything the view needs.

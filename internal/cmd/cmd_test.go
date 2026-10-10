@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kanywst/whosent/internal/demo"
+	"github.com/kanywst/whosent/pkg/chain"
 	"github.com/kanywst/whosent/pkg/diagnose"
 )
 
@@ -79,7 +80,7 @@ func TestCheckJSONStdoutIsOnlyJSON(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, args := emit(t, name)
 			_, out, _ := runCmd(t, "", append([]string{"check", "--json"}, args...)...)
-			var r diagnose.JSONReport
+			var r chain.JSONChain
 			dec := json.NewDecoder(strings.NewReader(out))
 			dec.DisallowUnknownFields()
 			if err := dec.Decode(&r); err != nil {
@@ -93,8 +94,20 @@ func TestCheckJSONStdoutIsOnlyJSON(t *testing.T) {
 					t.Errorf("machine output contains %q", banned)
 				}
 			}
-			if r.Schema != diagnose.SchemaVersion {
-				t.Errorf("schema %q", r.Schema)
+			if r.Schema != chain.SchemaVersion || r.Format != "mandatum" {
+				t.Errorf("schema %q, format %q", r.Schema, r.Format)
+			}
+
+			// --native is the format's own report, just as strict.
+			_, out, _ = runCmd(t, "", append([]string{"check", "--json", "--native"}, args...)...)
+			var nr diagnose.JSONReport
+			dec = json.NewDecoder(strings.NewReader(out))
+			dec.DisallowUnknownFields()
+			if err := dec.Decode(&nr); err != nil {
+				t.Fatalf("--native stdout is not one Mandatum report: %v\n%s", err, out)
+			}
+			if nr.Schema != diagnose.SchemaVersion {
+				t.Errorf("native schema %q", nr.Schema)
 			}
 		})
 	}
@@ -282,8 +295,7 @@ func TestAtParsing(t *testing.T) {
 }
 
 func TestExitCodeForAnInconsistentReport(t *testing.T) {
-	r := &diagnose.Report{Verdict: diagnose.VerdictValid}
-	r.Library.Consistent = false
+	r := &chain.Chain{Verdict: chain.VerdictValid, Inconsistency: &chain.Inconsistency{Detail: "x"}}
 	if c := exitCode(r, false); c != ExitInconsistent {
 		t.Errorf("exit %d, want %d: a disagreement with mandatum must never exit 0", c, ExitInconsistent)
 	}
@@ -331,16 +343,15 @@ func TestCompletionIsGenerated(t *testing.T) {
 // banner in the report, a line on stderr, and exit 70 from every command,
 // in every output form.
 func TestEveryCommandExitsSeventyOnADisagreement(t *testing.T) {
-	orig := diagnoseFn
-	diagnoseFn = func(ctx context.Context, links [][]byte, o diagnose.Options) (*diagnose.Report, error) {
-		r, err := orig(ctx, links, o)
+	orig := evaluateFn
+	evaluateFn = func(ctx context.Context, s chain.Session, eo chain.EvalOptions) (*chain.Chain, error) {
+		c, err := orig(ctx, s, eo)
 		if err == nil {
-			r.Library.Consistent = false
-			r.Library.Mismatch = "injected disagreement"
+			c.Inconsistency = &chain.Inconsistency{Banner: "injected", Detail: "injected disagreement"}
 		}
-		return r, err
+		return c, err
 	}
-	t.Cleanup(func() { diagnoseFn = orig })
+	t.Cleanup(func() { evaluateFn = orig })
 
 	_, args := emit(t, "healthy")
 	for _, a := range [][]string{

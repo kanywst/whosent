@@ -11,7 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/kanywst/whosent/internal/demo"
-	"github.com/kanywst/whosent/pkg/diagnose"
+	"github.com/kanywst/whosent/pkg/chain"
 )
 
 // views are the screens a person can reach, as the keys that reach them.
@@ -79,7 +79,7 @@ func TestEachScenarioSaysWhatIsWrongWithIt(t *testing.T) {
 			if !strings.Contains(got, string(r.Verdict)) {
 				t.Errorf("the screen never says %s", r.Verdict)
 			}
-			if r.Verdict != sc.Verdict {
+			if string(r.Verdict) != string(sc.Verdict) {
 				t.Errorf("the view diagnosed %s, the scenario is %s", r.Verdict, sc.Verdict)
 			}
 			if r.BreakAt >= 0 {
@@ -103,7 +103,7 @@ func TestEachScenarioSaysWhatIsWrongWithIt(t *testing.T) {
 			if unreached > 0 && !strings.Contains(got, "unreached") {
 				t.Error("links below the break are not marked unreached")
 			}
-			if r.Verdict == diagnose.VerdictValid && strings.Contains(got, "unreached") {
+			if r.Verdict == chain.VerdictValid && strings.Contains(got, "unreached") {
 				t.Error("a valid chain shows an unreached link")
 			}
 		})
@@ -235,24 +235,24 @@ func TestKeysDriveTheView(t *testing.T) {
 // it is for: showing when the chain dies.
 func TestScrubbingPastTheLeafsExpiryBreaksTheChain(t *testing.T) {
 	m := open(t, "healthy", 140, 45)
-	if m.report.Verdict != diagnose.VerdictValid {
+	if m.report.Verdict != chain.VerdictValid {
 		t.Fatalf("healthy starts %s", m.report.Verdict)
 	}
 	leaf := len(m.report.Links) - 1
-	for i := 0; i < 200 && m.report.Verdict == diagnose.VerdictValid; i++ {
+	for i := 0; i < 200 && m.report.Verdict == chain.VerdictValid; i++ {
 		m = press(t, m, "]")
 	}
 	r := m.report
-	if r.Verdict != diagnose.VerdictInvalid {
+	if r.Verdict != chain.VerdictInvalid {
 		t.Fatal("scrubbing forward never expired anything")
 	}
-	if r.BreakAt != leaf || r.Links[leaf].Check(diagnose.V4).Status != diagnose.StatusFail {
+	if r.BreakAt != leaf || r.Links[leaf].Check("V4").Status != chain.StatusFail {
 		t.Errorf("the first thing to expire is link %d, want the leaf (%d) failing V4", r.BreakAt, leaf)
 	}
 	if got := plain(m); !strings.Contains(got, "V4") || !strings.Contains(got, "expired") {
 		t.Error("the screen does not say the leaf expired")
 	}
-	if m = press(t, m, "0"); m.report.Verdict != diagnose.VerdictValid {
+	if m = press(t, m, "0"); m.report.Verdict != chain.VerdictValid {
 		t.Error("0 does not bring the chain back to valid")
 	}
 }
@@ -279,7 +279,7 @@ func TestRevokingALinkKillsWhatIsBelowItAndNothingAbove(t *testing.T) {
 	if !r.Links[1].RevokedSimulated {
 		t.Error("the selected link is not marked as a simulated revocation")
 	}
-	if r.Links[0].Unreached || r.Links[0].State != diagnose.LinkOK {
+	if r.Links[0].Unreached || r.Links[0].State != chain.LinkOK {
 		t.Error("revoking link 1 touched link 0 above it")
 	}
 	for i := 2; i < len(r.Links); i++ {
@@ -293,7 +293,7 @@ func TestRevokingALinkKillsWhatIsBelowItAndNothingAbove(t *testing.T) {
 			t.Errorf("a simulated revocation does not say %q", want)
 		}
 	}
-	if m = press(t, m, "x"); len(m.sims) != 0 || m.report.Verdict != diagnose.VerdictValid {
+	if m = press(t, m, "x"); len(m.sims) != 0 || m.report.Verdict != chain.VerdictValid {
 		t.Error("x again does not undo the simulation")
 	}
 	if m = press(t, m, "x", "X"); len(m.sims) != 0 {
@@ -383,9 +383,10 @@ func TestATerminalTooSmallSaysSo(t *testing.T) {
 func TestAnInconsistencyIsImpossibleToMiss(t *testing.T) {
 	m := open(t, "healthy", 140, 45)
 	r := *m.report
-	r.Library.Consistent = false
-	r.Library.Passed = false
-	r.Library.Rule, r.Library.Link = diagnose.V3, 1
+	r.Inconsistency = &chain.Inconsistency{
+		Banner: "!! INTERNAL INCONSISTENCY  whosent says the chain verifies, mandatum says V3 at link 1. Trust the library, and report this.",
+		Detail: "injected",
+	}
 	m.report = &r
 	lines := strings.Split(plain(m), "\n")
 	if !strings.Contains(lines[1], "INTERNAL INCONSISTENCY") || !strings.Contains(lines[1], "V3 at link 1") {
@@ -456,7 +457,7 @@ func TestEscAndAKeyInOneBurstAreBothRead(t *testing.T) {
 // claims as holdings, and reach must read zero.
 func TestAVoidLinkHoldsNothing(t *testing.T) {
 	m := open(t, "healthy", 140, 45)
-	for i := 0; i < 200 && m.report.Verdict == diagnose.VerdictValid; i++ {
+	for i := 0; i < 200 && m.report.Verdict == chain.VerdictValid; i++ {
 		m = press(t, m, "]")
 	}
 	got := plain(m)
@@ -512,21 +513,42 @@ func TestTheHeadlinesFitAtFullWidth(t *testing.T) {
 
 // TestNeverGrantedIsSaidOnlyWhenTrue: "the sponsor never granted this" sends
 // a reader to a different person than "a link dropped it", so each must be
-// said only when it is the true story.
+// said only when it is the true story. The wording is the adapter's (its own
+// test covers the other branch); the view must carry it through intact.
 func TestNeverGrantedIsSaidOnlyWhenTrue(t *testing.T) {
 	m := press(t, open(t, "widened", 140, 45), "a", "enter")
-	if m.answer == nil || !m.answer.SponsorGranted || !m.answer.OnlyThroughWidening {
+	if m.answer == nil || !strings.Contains(m.answer.Warning, "the sponsor granted this, link 1 dropped it") {
 		t.Fatal("widened's default question is not one the sponsor granted and a hop re-added")
 	}
-	if got := plain(m); strings.Contains(got, "never granted") {
+	got := plain(m)
+	if strings.Contains(got, "never granted") {
 		t.Error("the answer says never granted for authority the sponsor did grant")
 	}
+	if !strings.Contains(got, "the sponsor granted this") {
+		t.Errorf("the warning does not reach the screen:\n%s", got)
+	}
+}
 
-	// The same overlay for authority the sponsor never held at all.
-	tr := *m.answer
-	tr.SponsorGranted = false
-	m.answer = &tr
-	if got := plain(m); !strings.Contains(got, "the sponsor never granted this") {
-		t.Errorf("authority the sponsor never granted is not called out:\n%s", got)
+// TestRawViewKeepsItsLines: the raw view is a JSON document, one member per
+// line. Scrubbing what an adapter hands over must not flatten it into one
+// line of escaped newlines.
+func TestRawViewKeepsItsLines(t *testing.T) {
+	m := press(t, open(t, "healthy", 140, 45), "r")
+	got := plain(m)
+	if strings.Contains(got, `\x0a`) {
+		t.Errorf("the raw view shows escaped newlines:\n%s", got)
+	}
+	for _, want := range []string{`"alg": "EdDSA",`, `"typ": "mdt+jwt"`, "DIGESTS", "HEADER", "CLAIMS"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the raw view lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+// TestConsequencesAreNotCountedAsFailures: one revoked link is one failure,
+// however many links hang below it.
+func TestConsequencesAreNotCountedAsFailures(t *testing.T) {
+	if got := plain(open(t, "multifault", 140, 45)); !strings.Contains(got, "FINDINGS · 3 failing") {
+		t.Errorf("multifault's three faults are not counted as three:\n%s", got)
 	}
 }

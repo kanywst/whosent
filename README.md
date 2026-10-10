@@ -92,7 +92,7 @@ How authority narrows
       = kept  ~ narrowed  - dropped  + added  ✗ widened (violation)
 ```
 
-A verifier stops at the first failure. `check` evaluates every rule for every link, so a chain with three faults shows all three. `--json` prints the report as schema `whosent.report/v1` and nothing else on stdout.
+A verifier stops at the first failure. `check` evaluates every rule for every link, so a chain with three faults shows all three. `--json` prints the report as schema `whosent.chain/v1`, the same for every format, and nothing else on stdout; `--json --native` prints the format's own report instead (Mandatum's is `whosent.report/v1`).
 
 | Verdict | Exit | Meaning |
 | :--- | :--: | :--- |
