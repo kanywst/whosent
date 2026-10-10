@@ -3,7 +3,7 @@ package diagnose
 import (
 	"time"
 
-	"github.com/kanywst/mandatum/pkg/mda"
+	"github.com/kanywst/whosent/internal/mandatum/mda"
 )
 
 // SchemaVersion identifies the JSON report format. It changes only when a

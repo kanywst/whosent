@@ -1,8 +1,8 @@
 package diagnose
 
 import (
-	"github.com/kanywst/mandatum/pkg/mda"
-	"github.com/kanywst/mandatum/pkg/verify"
+	"github.com/kanywst/whosent/internal/mandatum/mda"
+	"github.com/kanywst/whosent/internal/mandatum/verify"
 )
 
 // Authority says how much an answer to "would this chain permit X?" can be

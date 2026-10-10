@@ -20,9 +20,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kanywst/mandatum/pkg/jose"
-	"github.com/kanywst/mandatum/pkg/mda"
-	"github.com/kanywst/mandatum/pkg/verify"
+	"github.com/kanywst/whosent/internal/mandatum/jose"
+	"github.com/kanywst/whosent/internal/mandatum/mda"
+	"github.com/kanywst/whosent/internal/mandatum/verify"
 )
 
 // Rule is a verification rule of the specification, "V1" through "V9". The

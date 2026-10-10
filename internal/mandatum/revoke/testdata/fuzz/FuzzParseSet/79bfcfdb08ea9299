@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"v\":1,\"itsequence\":1,\"generated_at\":1789200000,\"hashes\":1789200001,\"bits\":\"P_g\"}")

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kanywst/mandatum/pkg/revoke"
-	"github.com/kanywst/mandatum/pkg/verify"
+	"github.com/kanywst/whosent/internal/mandatum/revoke"
+	"github.com/kanywst/whosent/internal/mandatum/verify"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 

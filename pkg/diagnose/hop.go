@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kanywst/mandatum/pkg/mda"
-	"github.com/kanywst/mandatum/pkg/verify"
+	"github.com/kanywst/whosent/internal/mandatum/mda"
+	"github.com/kanywst/whosent/internal/mandatum/verify"
 )
 
 // Every coverage fact in this file comes from verify.Attenuates. The library

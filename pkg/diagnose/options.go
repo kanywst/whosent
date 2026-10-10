@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kanywst/mandatum/pkg/revoke"
-	"github.com/kanywst/mandatum/pkg/verify"
+	"github.com/kanywst/whosent/internal/mandatum/revoke"
+	"github.com/kanywst/whosent/internal/mandatum/verify"
 )
 
 // DefaultMaxAge is how old a revocation set may be before it is refused,

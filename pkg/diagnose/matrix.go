@@ -1,6 +1,6 @@
 package diagnose
 
-import "github.com/kanywst/mandatum/pkg/mda"
+import "github.com/kanywst/whosent/internal/mandatum/mda"
 
 // buildMatrix traces every capability from the link that grants it down to
 // the leaf, so that a renderer can draw authority narrowing as it goes.
