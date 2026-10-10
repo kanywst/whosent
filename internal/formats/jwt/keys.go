@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -122,9 +123,19 @@ func parseJWKS(data []byte) ([]jose.JSONWebKey, []string, error) {
 		if label == "" {
 			label = fmt.Sprintf("key %d", i)
 		}
+		var ops struct {
+			KeyOps []string `json:"key_ops"`
+		}
+		_ = json.Unmarshal(raw, &ops)
 		switch {
 		case k.Use != "" && k.Use != "sig":
 			skipped = append(skipped, fmt.Sprintf("%s: use %q, not sig", label, k.Use))
+			continue
+		case len(ops.KeyOps) > 0 && !slices.Contains(ops.KeyOps, "verify"):
+			// RFC 7517 section 4.3: key_ops lists what the key is for. A key
+			// that does not list verify is not for checking signatures,
+			// which is also how the Mandatum loader reads it.
+			skipped = append(skipped, fmt.Sprintf("%s: key_ops %v does not include verify", label, ops.KeyOps))
 			continue
 		case !k.Valid():
 			skipped = append(skipped, label+": not a valid key")

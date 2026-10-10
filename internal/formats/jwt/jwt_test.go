@@ -260,6 +260,22 @@ func TestRefusedAlgorithms(t *testing.T) {
 	}
 }
 
+// keyOpsDoc is a key set holding two copies of a public key, the first
+// with the given key_ops.
+func keyOpsDoc(t *testing.T, priv *ecdsa.PrivateKey, ops string) string {
+	t.Helper()
+	one, err := json.Marshal(jose.JSONWebKey{Key: &priv.PublicKey, KeyID: "o"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := json.Marshal(jose.JSONWebKey{Key: &priv.PublicKey, KeyID: "plain"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	withOps := strings.TrimSuffix(string(one), "}") + `,"key_ops":` + ops + `}`
+	return `{"keys":[` + withOps + `,` + string(two) + `]}`
+}
+
 func TestKeyDocuments(t *testing.T) {
 	priv, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	tests := []struct {
@@ -274,6 +290,8 @@ func TestKeyDocuments(t *testing.T) {
 		{"a symmetric key is skipped", `{"keys":[{"kty":"oct","k":"c2VjcmV0","kid":"h"}]}`, 0, "symmetric", "no usable"},
 		{"a duplicate kid is refused", string(jwksOf(t, jose.JSONWebKey{Key: &priv.PublicKey, KeyID: "d"}, jose.JSONWebKey{Key: &priv.PublicKey, KeyID: "d"})), 0, "", "twice"},
 		{"not a key set", `[1,2]`, 0, "", "not a JWK Set"},
+		{"a key whose key_ops leave out verify is skipped", keyOpsDoc(t, priv, `["encrypt"]`), 1, "key_ops", ""},
+		{"a key whose key_ops include verify is kept", keyOpsDoc(t, priv, `["verify"]`), 2, "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
