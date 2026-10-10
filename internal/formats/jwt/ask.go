@@ -18,7 +18,7 @@ const (
 // AskFields asks for a scope and, optionally, the audience it is used at.
 func (s *session) AskFields() []chain.AskField {
 	return []chain.AskField{
-		{Key: askScope, Label: "scope", Hint: "one scope, such as files:read"},
+		{Key: askScope, Label: "scope", Hint: "one scope, such as files:read", Required: true},
 		{Key: askAudience, Label: "audience", Hint: "the resource server it is used at; empty skips the audience"},
 	}
 }

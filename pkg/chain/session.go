@@ -81,6 +81,9 @@ type AskField struct {
 	// Key names the field to Ask; Label is shown beside it, Hint under it
 	// while it is being edited.
 	Key, Label, Hint string
+	// Required fields must be given: a question that leaves one out is
+	// refused rather than answered from a default.
+	Required bool
 }
 
 // Outcome is how one link answers a question.

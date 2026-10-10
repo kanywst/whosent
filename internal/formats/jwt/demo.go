@@ -326,7 +326,17 @@ func emitDemo(def scenarioDef, dir string, force bool) (string, error) {
 		cmd = append(cmd, "--audience", d.audience)
 	}
 	cmd = append(cmd, "--at", FixedBase.Add(time.Minute).Format(time.RFC3339))
-	return strings.Join(cmd, " "), nil
+	command := strings.Join(cmd, " ")
+	manifest, err := json.MarshalIndent(map[string]string{
+		"name": def.name, "title": def.title, "summary": def.summary, "format": ID, "command": command,
+	}, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	if err := writeFile(filepath.Join(dir, "manifest.json"), append(manifest, '\n')); err != nil {
+		return "", err
+	}
+	return command, nil
 }
 
 // prepareDir and writeFile follow internal/demo's rules for fixtures: a

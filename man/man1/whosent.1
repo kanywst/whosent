@@ -100,9 +100,16 @@ the same for every format) and nothing else reaches standard output; with
 .B ask
 Check a request against the chain with its format's own matcher, at every link,
 so you can see where authority for it ends, or where it appears from nowhere.
-From the command line the request is a Mandatum-style one (resource, action,
-tags, attributes); for JWT and Biscuit chains, ask from the interactive view
-with \fBa\fR.
+Each format takes its own question: a JWT a scope (\fB\-\-scope\fR, used at
+\fB\-\-audience\fR); a Biscuit token a request its authorizer (\fB\-\-authorizer\fR,
+\fB\-\-fact\fR) runs over it, with \fB\-\-resource\-id\fR and \fB\-\-action\fR
+becoming resource(...) and operation(...) facts and \fB\-\-policy\fR replacing the
+authorizer's policies (which makes the answer at most CONDITIONAL); Mandatum a
+resource request (\fB\-\-resource\-id\fR, \fB\-\-action\fR,
+\fB\-\-resource\-type\fR, \fB\-\-tag\fR, \fB\-\-attr\fR).
+\fB\-\-field\fR \fIKEY\fR=\fIVALUE\fR sets any question field by name. A flag
+the format has no use for is refused, and nothing a question needs is filled in
+from a default.
 The answer is labelled
 .B AUTHORITATIVE
 (the chain verified with every input supplied),
@@ -118,9 +125,10 @@ Mint example chains with throwaway keys and open them in the interactive view.
 With no \fISCENARIO\fR it tours them all, every format in turn. Each scenario
 brings its own keys and inputs, so the input options do not apply. With
 \fB\-\-emit\fR \fIDIR\fR it writes one scenario's files instead and prints the
-\fBwhosent check\fR command that checks them (a Mandatum scenario also writes a
+\fBwhosent check\fR command that checks them, with a
 .I manifest.json
-holding that command and what it must report). Files are written 0600 through a
+naming the scenario and holding that command (a Mandatum scenario's also
+records what it must report). Files are written 0600 through a
 temporary file and a rename, so a planted symbolic link is replaced rather than
 written through; a directory that is not empty is refused without
 \fB\-\-force\fR. \fB\-\-list\fR prints every scenario with its format.
@@ -244,6 +252,17 @@ a warning says so.
 .TP
 .BI \-\-request " FILE"
 Read the request from a JSON file instead.
+.TP
+.BI \-\-scope " SCOPE"
+JWT: the scope to ask about. Required for a JWT question.
+.TP
+.BI \-\-policy " POLICIES"
+Biscuit: the allow and deny policies that decide, instead of the authorizer's
+own. The answer is then at most CONDITIONAL.
+.TP
+.BI \-\-field " KEY=VALUE"
+Set one of the format's question fields by name, such as
+\fBfacts=resource("orders"); operation("read")\fR for Biscuit. Repeatable.
 .TP
 .B \-\-json
 Print the answer as JSON, in the format's own schema (\fBwhosent.ask/v1\fR for

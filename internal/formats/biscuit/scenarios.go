@@ -2,6 +2,7 @@ package biscuit
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -333,12 +334,20 @@ func emit(sp spec, dir string, force bool) (string, error) {
 		args = append(args, "--revoked-jtis revoked-ids.txt")
 	}
 	args = append(args, "--at "+emitBase.Add(time.Minute).Format(time.RFC3339))
+	command := strings.Join(args, " ")
+	manifest, err := json.MarshalIndent(map[string]string{
+		"name": sp.name, "title": sp.title, "summary": sp.summary, "format": ID, "command": command,
+	}, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	files["manifest.json"] = append(manifest, '\n')
 	for name, data := range files {
 		if err := writeFile(filepath.Join(dir, name), data); err != nil {
 			return "", err
 		}
 	}
-	return strings.Join(args, " "), nil
+	return command, nil
 }
 
 // prepareDir creates dir 0700, or accepts an existing empty one. A

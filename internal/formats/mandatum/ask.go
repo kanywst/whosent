@@ -30,7 +30,7 @@ const (
 var askFields = []chain.AskField{
 	{Key: FieldAction, Label: "action", Hint: "what is attempted, such as invoke"},
 	{Key: FieldResourceType, Label: "resource type", Hint: "such as mcp_tool"},
-	{Key: FieldResourceID, Label: "resource id", Hint: "the literal resource, such as web.fetch"},
+	{Key: FieldResourceID, Label: "resource id", Hint: "the literal resource, such as web.fetch", Required: true},
 	{Key: FieldTags, Label: "tags", Hint: "comma separated"},
 	{Key: FieldAttributes, Label: "attributes", Hint: "key=value, comma separated; values are read as JSON when they parse"},
 }

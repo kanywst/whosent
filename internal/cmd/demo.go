@@ -33,7 +33,8 @@ them. Each scenario brings its own keys, revocation set and audience, so the
 input flags do not apply.
 
 With --emit DIR it writes one scenario's files instead, with a manifest.json
-holding the exact whosent check command and what it must report. Emitted
+naming the scenario and holding the exact whosent check command (a Mandatum
+scenario's also records what that command must report). Emitted
 fixtures use a fixed base time, so they are the same bytes on every run.
 
 Scenarios: ` + fmt.Sprint(names()),

@@ -208,7 +208,15 @@ How authority narrows
 
 In the interactive view, `a` asks whether the chain would permit a request, in that format's terms: a scope and an audience for a JWT, facts and a policy for Biscuit, an action on a resource for Mandatum. The answer is traced link by link, so you see where authority for it ends or where it appeared from nowhere, and it says how far it can be relied on: `AUTHORITATIVE` (the chain verified with every input), `CONDITIONAL` (nothing failed, but some rules were not checked) or `HYPOTHETICAL` (the chain does not verify, so it permits nothing; this is only what the leaf claims).
 
-From a script, `whosent ask` takes a Mandatum-style request (`--resource-id`, `--action`, `--tag`, `--attr`, or a `tools/call` request with `--attr-from-args`) and exits 0 only when a VALID chain permits it. For JWT and Biscuit chains, ask from the interactive view for now.
+From a script, `whosent ask` asks the same question and exits 0 only when a VALID chain permits it. Each format takes its own question, a flag it has no use for is refused, and nothing a question needs is filled in from a default:
+
+| Format | Question |
+| --- | --- |
+| JWT | `--scope files:read`, used at `--audience` |
+| Biscuit | the authorizer (`--authorizer`, `--fact`) runs over the token for a request: `--resource-id` and `--action` become `resource(...)` and `operation(...)` facts; it decides with the authorizer's own policies unless `--policy` gives others, which makes the answer at most `CONDITIONAL` |
+| Mandatum | `--resource-id`, `--action`, `--resource-type`, `--tag`, `--attr`, or a `tools/call` request with `--attr-from-args` |
+
+`--field KEY=VALUE` sets any of a format's question fields by name.
 
 ## Inputs
 

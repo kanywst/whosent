@@ -28,6 +28,9 @@ type askFlags struct {
 	attrs        []string
 	request      string
 	fromArgs     bool
+	scope        string
+	policy       string
+	fields       []string
 	asJSON       bool
 	strict       bool
 }
@@ -54,7 +57,19 @@ Exit status:
   70  this tool and the format's reference implementation disagree about the
       chain (a bug in whosent)`,
 		Example: `  whosent ask chain.json --resource-id web.fetch --attr args.host=docs.example.org
-  whosent ask call.json --attr-from-args       # a tools/call request names the tool and its arguments`,
+  whosent ask call.json --attr-from-args       # a tools/call request names the tool and its arguments
+  whosent ask token.jwt --jwks ISS=jwks.json --audience https://api --scope files:read
+  whosent ask token.b64 --root-key root.pub --authorizer authz.datalog --resource-id orders --action read
+  whosent ask token.b64 --root-key root.pub --field 'facts=resource("orders"); operation("read")' --policy 'allow if true'
+
+Which flags apply depends on the format: Mandatum asks about a resource
+(--resource-id, --action, --resource-type, --tag, --attr); a JWT about a
+scope (--scope, and --audience for where it is used); a Biscuit token runs
+its authorizer (--authorizer and --fact) for a request (--resource-id and
+--action become resource(...) and operation(...) facts) and decides with the
+authorizer's policies unless --policy gives others. --field KEY=VALUE sets
+any of the format's question fields directly. A flag the format does not
+use is refused, and nothing a question needs is filled in from a default.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, _, err := f.load(cmd, reg, args, stdin)
@@ -69,7 +84,7 @@ Exit status:
 			if err != nil {
 				return err
 			}
-			values, warnings, err := a.build(cmd, c.Call)
+			values, warnings, err := a.values(cmd, asker.AskFields(), c.Call, f)
 			if err != nil {
 				return err
 			}
@@ -115,9 +130,125 @@ Exit status:
 	fl.StringArrayVar(&a.attrs, "attr", nil, "an attribute conditions are evaluated against, KEY=VALUE; VALUE is read as JSON when it parses (repeatable)")
 	fl.StringVar(&a.request, "request", "", "read the request from a JSON file instead")
 	fl.BoolVar(&a.fromArgs, "attr-from-args", false, "map a tools/call request's arguments to args.<name> attributes")
+	fl.StringVar(&a.scope, "scope", "", "JWT: the scope to ask about")
+	fl.StringVar(&a.policy, "policy", "", "Biscuit: the policies that decide, instead of the authorizer's own")
+	fl.StringArrayVar(&a.fields, "field", nil, "set one of the format's question fields, KEY=VALUE (repeatable)")
 	fl.BoolVar(&a.asJSON, "json", false, "print the answer as JSON, in the format's own schema (whosent.ask/v1 for Mandatum)")
 	fl.BoolVar(&a.strict, "strict", false, "treat a CONDITIONAL answer as not permitted")
 	return c
+}
+
+// resourceFlags are the flags that build a Mandatum resource request.
+var resourceFlags = []string{"resource-type", "resource-id", "tag", "action", "attr", "request", "attr-from-args"}
+
+// values turns the flags into the format's question. Mandatum's question
+// is a resource request, which build assembles from the resource flags.
+// Other formats name their own fields; the flags that map onto them are
+// used, a flag the format has no field for is refused (rather than quietly
+// ignored, which would answer a question nobody asked), and a required
+// field left empty is refused too.
+func (a *askFlags) values(cmd *cobra.Command, fields []chain.AskField, call *chain.Call, gf *flags) (map[string]string, []string, error) {
+	changed := cmd.Flags().Changed
+	has := map[string]bool{}
+	var keys []string
+	for _, fd := range fields {
+		has[fd.Key] = true
+		keys = append(keys, fd.Key)
+	}
+	var values map[string]string
+	var warnings []string
+	switch {
+	case has["resource_id"]:
+		for _, fl := range []string{"scope", "policy"} {
+			if changed(fl) {
+				return nil, nil, fmt.Errorf("--%s does not apply to this format's questions", fl)
+			}
+		}
+		var err error
+		if values, warnings, err = a.build(cmd, call); err != nil {
+			return nil, nil, err
+		}
+	default:
+		values = map[string]string{}
+		refuse := func(fl string) error {
+			return fmt.Errorf("--%s does not apply to this format's questions (its fields: %s)", fl, strings.Join(keys, ", "))
+		}
+		if changed("scope") {
+			if !has["scope"] {
+				return nil, nil, refuse("scope")
+			}
+			values["scope"] = a.scope
+		}
+		if has["audience"] && gf.audience != "" {
+			values["audience"] = gf.audience
+		}
+		if changed("policy") {
+			if !has["policy"] {
+				return nil, nil, refuse("policy")
+			}
+			values["policy"] = a.policy
+		}
+		if changed("resource-id") || changed("action") {
+			if !has["facts"] {
+				if changed("resource-id") {
+					return nil, nil, refuse("resource-id")
+				}
+				return nil, nil, refuse("action")
+			}
+			var facts []string
+			if changed("resource-id") {
+				facts = append(facts, fmt.Sprintf("resource(%s)", datalogString(a.resourceID)))
+			}
+			if changed("action") {
+				facts = append(facts, fmt.Sprintf("operation(%s)", datalogString(a.action)))
+			}
+			values["facts"] = strings.Join(facts, "; ")
+		}
+		for _, fl := range resourceFlags {
+			if fl == "resource-id" || fl == "action" {
+				continue
+			}
+			if changed(fl) {
+				return nil, nil, refuse(fl)
+			}
+		}
+	}
+	for _, kv := range a.fields {
+		k, v, ok := strings.Cut(kv, "=")
+		if !ok || k == "" {
+			return nil, nil, fmt.Errorf("--field %q: want KEY=VALUE", kv)
+		}
+		if !has[k] {
+			return nil, nil, fmt.Errorf("--field %q: this format's question has no field %q (its fields: %s)", kv, k, strings.Join(keys, ", "))
+		}
+		values[k] = v
+	}
+	for _, fd := range fields {
+		if fd.Required && strings.TrimSpace(values[fd.Key]) == "" {
+			return nil, nil, fmt.Errorf("the question needs its %s: give it with %s", fd.Label, flagFor(fd.Key))
+		}
+	}
+	return values, warnings, nil
+}
+
+// flagFor names the flag that sets a question field.
+func flagFor(key string) string {
+	switch key {
+	case "scope":
+		return "--scope"
+	case "resource_id":
+		return "--resource-id"
+	case "policy":
+		return "--policy"
+	}
+	return "--field " + key + "=..."
+}
+
+// datalogString writes a Datalog string literal, escaping what the
+// parser requires escaped.
+func datalogString(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
+	return `"` + r.Replace(s) + `"`
 }
 
 // requestFile is the --request format.
