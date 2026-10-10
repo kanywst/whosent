@@ -1,0 +1,43 @@
+# The binary `make build` and demo.tape leave in the repository root. Anchored,
+# so it never hides cmd/whosent.
+/whosent
+/whosent-*
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Coverage
+*.out
+coverage.html
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Build artifacts
+dist/
+
+# Fixtures are minted per run and never committed: `whosent demo --emit DIR`
+# writes them wherever you ask, and an assertion that was valid when written
+# expires on its own.
+/fixtures/
+
+# Demo recording artifacts other than demo.gif
+*.mp4
+*.webm
+
+# IDE and OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+._*

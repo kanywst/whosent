@@ -1,0 +1,35 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - misspell
+    - revive
+    - staticcheck
+    - unused
+  settings:
+    staticcheck:
+      # The WriteString(fmt.Sprintf(...)) builder style is used throughout the
+      # codebase; the QF (quickfix) suggestions only add churn, so disable them
+      # to keep v2 strictness equivalent to the previous staticcheck + gosimple.
+      checks:
+        - all
+        - -QF1012
+        - -QF1006
+        # S1016 suggests converting between identically shaped structs. The
+        # JSON report types are a public contract and are built field by field
+        # on purpose, so an internal field never leaks into the schema.
+        - -S1016
+
+run:
+  timeout: 5m
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofmt
