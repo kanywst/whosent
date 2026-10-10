@@ -600,6 +600,15 @@ func (a *analysis) authorize() {
 	a.userTime = programHasTime(prog)
 	if !a.userTime {
 		prog.Facts = append(append([]datalog.Fact(nil), prog.Facts...), a.timeFact())
+		if a.opts.HasAuthorizer {
+			// Most authorizers add time(now) themselves, and without a time
+			// fact every expiry check fails. whosent supplies one so that
+			// expiry and the clock in the view mean something, but the
+			// reference adds none: an authorizer that really omits it
+			// would deny where this says the checks hold. Said, not hidden.
+			a.chainFinding = append(a.chainFinding, chain.Finding{Rule: RuleChecks, Link: -1, Hop: -1, Severity: chain.SeverityWarn, Code: "b7.time_supplied",
+				Detail: "the authorizer gives no time(...) fact, so whosent supplied time(" + a.at.UTC().Format(time.RFC3339) + "); an authorizer that really gives none fails every expiry check"})
+		}
 	}
 	if !a.opts.HasAuthorizer {
 		a.timeOnly = true
@@ -681,7 +690,10 @@ func (a *analysis) authorize() {
 	}
 	switch {
 	case len(prog.Policies) == 0:
-		a.policyNote = "no policy given: the token's checks and the authorizer's checks were evaluated, and nothing decided allow or deny"
+		// The reference's authorizer denies when no policy matches, and
+		// with no policy at all nothing can match: NoMatchingPolicy.
+		a.chainFinding = append(a.chainFinding, chain.Finding{Rule: RuleChecks, Link: -1, Hop: -1, Severity: chain.SeverityFail, Code: "b7.no_policy",
+			Detail: "the authorizer has no policy, and an authorizer with nothing to match denies (the reference's NoMatchingPolicy); add a policy such as `allow if true;` to evaluate the checks alone"})
 	case res.Policy == nil:
 		a.chainFinding = append(a.chainFinding, chain.Finding{Rule: RuleChecks, Link: -1, Hop: -1, Severity: chain.SeverityFail, Code: "b7.no_policy",
 			Detail: "no policy matched, so the authorizer denies"})

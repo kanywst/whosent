@@ -218,7 +218,10 @@ func TestPoliciesDecide(t *testing.T) {
 		{`resource("a"); operation("read"); deny if true;`, chain.VerdictInvalid, "b7.deny"},
 		{`resource("a"); operation("read"); allow if false;`, chain.VerdictInvalid, "b7.no_policy"},
 		{`resource("a"); operation("read"); check if user("x"); allow if true;`, chain.VerdictInvalid, "b7.authorizer_check"},
-		{`resource("a"); operation("read");`, chain.VerdictValid, ""},
+		// No policy at all: the reference's authorizer has nothing to match
+		// and denies (NoMatchingPolicy), so this is not VALID.
+		{`resource("a"); operation("read");`, chain.VerdictInvalid, "b7.no_policy"},
+		{`resource("a"); operation("read"); allow if true;`, chain.VerdictValid, ""},
 	}
 	for _, tt := range cases {
 		c := check(t, tok, readAuthorizer(t, tt.src))

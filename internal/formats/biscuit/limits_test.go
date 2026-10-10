@@ -66,3 +66,23 @@ func TestHostileTokensStopPromptlyAsAnError(t *testing.T) {
 		})
 	}
 }
+
+// An authorizer that supplies no time fact gets one from whosent, so the
+// clock means something; the reference supplies none, so this is said.
+func TestSuppliedTimeIsDisclosed(t *testing.T) {
+	tok := mintThree(t, false)
+	c := check(t, tok, readAuthorizer(t, `resource("a"); operation("read"); allow if true;`))
+	found := false
+	for _, f := range c.ChainFindings {
+		found = found || f.Code == "b7.time_supplied"
+	}
+	if !found {
+		t.Error("whosent supplied time(...) to an authorizer that had none without saying so")
+	}
+	c = check(t, tok, readAuthorizer(t, `resource("a"); operation("read"); time(2026-09-12T08:01:00Z); allow if true;`))
+	for _, f := range c.ChainFindings {
+		if f.Code == "b7.time_supplied" {
+			t.Error("an authorizer with its own time fact was told whosent supplied one")
+		}
+	}
+}
