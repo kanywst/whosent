@@ -327,9 +327,12 @@ func TestOpenRefusesWhatItCannotRead(t *testing.T) {
 func problems(c *chain.Chain) []string { return chaintest.Problems(c) }
 
 func TestAskPrefillsARealQuestion(t *testing.T) {
-	for name, want := range map[string]string{
-		"biscuit-denied":    `resource("orders"); operation("write")`,
-		"biscuit-unchecked": `resource("orders"); operation("read")`,
+	// The policy field starts as the authorizer's own policies, so asking
+	// without editing asks the deployment's question; with no authorizer
+	// there is no policy to start from, and none is made up.
+	for name, want := range map[string][2]string{
+		"biscuit-denied":    {`resource("orders"); operation("write")`, "allow if true;"},
+		"biscuit-unchecked": {`resource("orders"); operation("read")`, ""},
 	} {
 		var s chain.Session
 		for _, sc := range New().Scenarios() {
@@ -342,7 +345,7 @@ func TestAskPrefillsARealQuestion(t *testing.T) {
 			t.Fatal(err)
 		}
 		vals := s.(chain.Asker).AskPrefill(c, 0)
-		if vals[askFacts] != want || vals[askPolicy] != "allow if true" {
+		if vals[askFacts] != want[0] || vals[askPolicy] != want[1] {
 			t.Errorf("%s: prefilled %q, want %q", name, vals, want)
 		}
 	}

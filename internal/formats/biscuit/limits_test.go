@@ -1,6 +1,7 @@
 package biscuit
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -229,5 +230,62 @@ func TestAStringCannotForgeALineOfDatalog(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("no DATALOG section; the test would prove nothing")
+	}
+}
+
+// Ask used to drop the session's authorizer and decide with "allow if
+// true", answering PERMITTED (AUTHORITATIVE) where the authorizer denies.
+// The authorizer's rules, checks and policies now always take part.
+func TestAskKeepsTheAuthorizer(t *testing.T) {
+	mint := func(src string) *Token {
+		m, err := Mint(rootSigner, blockSigner(0), BlockSpec{Source: src})
+		if err != nil {
+			t.Fatal(err)
+		}
+		tok, err := m.Token()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tok
+	}
+	tests := []struct {
+		name       string
+		token      string
+		authorizer string
+		values     map[string]string
+		permitted  bool
+		authority  string
+	}{
+		{"a token's reject if still rejects", `right("orders", "read"); reject if operation("delete");`, `operation("delete"); resource("orders"); allow if true;`,
+			map[string]string{}, false, "AUTHORITATIVE"},
+		{"the authorizer's deny policy still decides", `right("orders", "read");`, `deny if true;`,
+			map[string]string{askFacts: `resource("orders"); operation("read")`}, false, "AUTHORITATIVE"},
+		{"the authorizer's own check still runs", `right("orders", "read");`, `check if user("admin"); allow if true;`,
+			map[string]string{askFacts: `resource("orders"); operation("read")`}, false, "AUTHORITATIVE"},
+		{"with no policy anywhere nothing is allowed", `right("orders", "read");`, `resource("orders");`,
+			map[string]string{}, false, "AUTHORITATIVE"},
+		{"a policy the asker typed is not the deployment's", `right("orders", "read");`, `deny if true;`,
+			map[string]string{askFacts: `resource("orders")`, askPolicy: `allow if true`}, true, "CONDITIONAL"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := readAuthorizer(t, tt.authorizer)
+			s := &Session{tok: mint(tt.token), opts: opts, at: testAt}
+			c, err := s.Evaluate(context.Background(), chain.EvalOptions{At: testAt})
+			if err != nil {
+				t.Fatal(err)
+			}
+			r, err := s.Ask(context.Background(), c, tt.values)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if r.Permitted != tt.permitted || r.Authority != tt.authority {
+				t.Errorf("permitted %v (%s), want %v (%s): %s", r.Permitted, r.Authority, tt.permitted, tt.authority, r.Why)
+			}
+		})
+	}
+	s := &Session{tok: mint(`right("a", "read");`), opts: Options{RootKeys: []Key{rootSigner.Pub}, Revoked: map[string]bool{}, Limits: datalog.DefaultLimits}, at: testAt}
+	if _, err := s.Ask(context.Background(), nil, map[string]string{}); err == nil {
+		t.Error("a question with no request and no authorizer was answered")
 	}
 }
