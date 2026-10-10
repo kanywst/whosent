@@ -4,6 +4,7 @@
 package all
 
 import (
+	"github.com/kanywst/whosent/internal/formats/biscuit"
 	"github.com/kanywst/whosent/internal/formats/mandatum"
 	"github.com/kanywst/whosent/pkg/chain"
 )
@@ -13,6 +14,7 @@ import (
 func Adapters() []chain.Adapter {
 	return []chain.Adapter{
 		mandatum.New(),
+		biscuit.New(),
 	}
 }
 
