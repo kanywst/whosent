@@ -1,8 +1,11 @@
 package datalog
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"errors"
 	"fmt"
+	"math/big"
 
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
@@ -169,12 +172,34 @@ func FromProto(in *pb.Block, external bool) (Block, []string, []PublicKey, error
 
 // KeyFromProto reads a public key as the reference's PublicKeyData does: an
 // algorithm number it does not know reads as Ed25519, the default.
+//
+// A P-256 key sent as an uncompressed point is turned into the compressed
+// form here. The reference parses keys and from then on uses to_bytes(),
+// which is always compressed: in every signature payload, in the seal, and
+// when it interns a third-party key for scopes. Using the bytes as sent
+// would verify signatures the reference rejects and trust blocks it does
+// not. A key that is not a valid point is kept as sent, for the key
+// parser to refuse.
 func KeyFromProto(k *pb.PublicKey) PublicKey {
 	alg := Ed25519
 	if k.GetAlgorithm() == pb.PublicKey_SECP256R1 {
 		alg = Secp256r1
 	}
-	return PublicKey{Alg: alg, Key: k.GetKey()}
+	return Canonical(PublicKey{Alg: alg, Key: k.GetKey()})
+}
+
+// Canonical returns the encoding the reference signs and compares keys
+// by: compressed SEC1 for P-256, the bytes as they are for Ed25519.
+func Canonical(pk PublicKey) PublicKey {
+	if pk.Alg != Secp256r1 || len(pk.Key) != 65 || pk.Key[0] != 4 {
+		return pk
+	}
+	if _, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), pk.Key); err != nil {
+		return pk
+	}
+	x := new(big.Int).SetBytes(pk.Key[1:33])
+	y := new(big.Int).SetBytes(pk.Key[33:])
+	return PublicKey{Alg: pk.Alg, Key: elliptic.MarshalCompressed(elliptic.P256(), x, y)}
 }
 
 func scopeFromProto(s *pb.Scope) (Scope, error) {

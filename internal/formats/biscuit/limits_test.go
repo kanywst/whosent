@@ -133,3 +133,53 @@ func TestAScopeNamingAnUndefinedKeyIsRefused(t *testing.T) {
 		t.Errorf("B6 is %s, want a failure naming the undefined key", s)
 	}
 }
+
+// The reference signs and verifies P-256 keys in their compressed form,
+// whatever form the token carries them in. A token whose next key is sent
+// uncompressed and signed over those uncompressed bytes is refused by the
+// reference; one signed over the compressed bytes is accepted.
+func TestP256KeysAreSignedInTheirCompressedForm(t *testing.T) {
+	next := p256Signer(0)
+	unc, err := next.ec.PublicKey.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name     string
+		signOver []byte
+		want     chain.Status
+	}{
+		{"signed over the uncompressed bytes", unc, chain.StatusFail},
+		{"signed over the compressed bytes", next.Pub.Key, chain.StatusPass},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m, err := Mint(rootSigner, next, BlockSpec{Source: `right("a", "read");`})
+			if err != nil {
+				t.Fatal(err)
+			}
+			tok, err := m.Token()
+			if err != nil {
+				t.Fatal(err)
+			}
+			sb := &tok.Blocks[0]
+			signed := datalog.PublicKey{Alg: datalog.Secp256r1, Key: tt.signOver}
+			if sb.Signature, err = rootSigner.Sign(payloadAuthorityV1(sb.Data, signed, 1)); err != nil {
+				t.Fatal(err)
+			}
+			sb.Version, sb.HasVersion = 1, true
+			sb.NextKey = datalog.PublicKey{Alg: datalog.Secp256r1, Key: unc}
+			raw, err := tok.Encode()
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded, err := Decode(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c := check(t, decoded, readAuthorizer(t, `allow if true;`))
+			if s := statusOf(c, 0, RuleSignature); s != tt.want {
+				t.Errorf("B3 is %s, want %s", s, tt.want)
+			}
+		})
+	}
+}
