@@ -18,7 +18,7 @@ Fixes ship as a new release. There are no backport branches.
 Include what you can of:
 
 - The version (`whosent version`, which also names the embedded Mandatum version) and the OS
-- The chain, key documents and revocation set that trigger it, or `whosent demo --emit` output modified to reproduce it
+- The token or chain, key documents, root key, authorizer and revocation list that trigger it, or `whosent demo --emit` output modified to reproduce it
 - The exact command line
 - What you expected versus what happened
 
@@ -32,7 +32,9 @@ What to expect:
 
 In scope:
 
-- whosent reporting a chain as VALID, or a request as PERMITTED, that the embedded Mandatum reference verifier would deny. Exit codes are a contract scripts depend on
+- whosent reporting a chain as VALID, or a request as PERMITTED, that the format's own rules deny: a JWT with a bad signature, an expired token or a wrong audience; a Biscuit token whose signatures, proof or checks fail, or that the reference implementation would refuse; a Mandatum chain the embedded reference verifier would deny. Exit codes are a contract scripts depend on
+- A prior JWT actor, which only the issuer asserts, being shown or exported as verified
+- Key material being taken from a token (`jku`, `x5u`, `x5c`, `jwk`) instead of from your flags or trust file
 - A bug in the embedded Mandatum reference verifier (`internal/mandatum`) that accepts what the specification forbids. mandatum is archived, so whosent is where it gets fixed
 - A rule that was not checked being shown, printed or exported as passing
 - An answer labelled AUTHORITATIVE when it was not
