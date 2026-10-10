@@ -501,9 +501,15 @@ func TestTheHeadlinesFitAtFullWidth(t *testing.T) {
 				t.Errorf("%s %v: the verdict wraps at 140 columns:\n%s\n%s", s.Name, keys, lines[1], lines[2])
 			}
 			for _, l := range lines {
-				if strings.Contains(l, "VERIFIED") || strings.Contains(l, "REVOKED") || strings.Contains(l, "UNVERIFIED") {
-					if strings.Contains(l, "…") {
-						t.Errorf("%s %v: the link state line is cut off:\n%s", s.Name, keys, l)
+				// Only what follows the state badge is the state line: the
+				// left half of the same screen row belongs to another panel,
+				// whose own truncation is not this test's business.
+				for _, word := range []string{"UNVERIFIED", "VERIFIED", "REVOKED"} {
+					if i := strings.Index(l, word); i >= 0 {
+						if strings.Contains(l[i:], "…") {
+							t.Errorf("%s %v: the link state line is cut off:\n%s", s.Name, keys, l)
+						}
+						break
 					}
 				}
 			}
