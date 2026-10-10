@@ -59,7 +59,33 @@ func (Adapter) Detect(data []byte) chain.Confidence {
 	if headerType(in.Links[0]) == jose.Type {
 		return chain.Certain
 	}
-	return chain.Plausible
+	// Without the media type, only the Mandatum claims make a link look
+	// like one. Every JWT is in a shape this reader accepts, and claiming
+	// all of them would make an ordinary access token ambiguous between
+	// this format and the JWT format.
+	if hasClaim(in.Links[0], "mdt") {
+		return chain.Plausible
+	}
+	return chain.NotMine
+}
+
+// hasClaim reports whether a compact serialization's payload carries a
+// top-level claim, without verifying anything.
+func hasClaim(compact []byte, name string) bool {
+	parts := strings.Split(string(compact), ".")
+	if len(parts) != 3 {
+		return false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return false
+	}
+	var claims map[string]json.RawMessage
+	if json.Unmarshal(raw, &claims) != nil {
+		return false
+	}
+	_, ok := claims[name]
+	return ok
 }
 
 // headerType reads a compact serialization's `typ` without verifying
