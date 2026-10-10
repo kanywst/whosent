@@ -130,37 +130,73 @@ type Loader struct {
 // issuer signed shows as an Error: an enforcement point configured the same
 // way would deny those links, and that is what the report has to say.
 func (l Loader) Load(ctx context.Context, sources []Source) (*diagnose.Trust, error) {
+	docs, err := l.LoadDocuments(ctx, sources)
+	if err != nil {
+		return nil, err
+	}
 	t := &diagnose.Trust{Issuers: map[string]*diagnose.IssuerKeys{}}
+	for _, d := range docs {
+		ik := &diagnose.IssuerKeys{Source: d.Source, Err: d.Err}
+		if d.Err == "" {
+			var perr error
+			ik.Keys, ik.Skipped, perr = ParseDocument(d.Data)
+			if perr != nil {
+				ik.Err = perr.Error()
+			}
+		}
+		t.Issuers[d.Issuer] = ik
+	}
+	return t, nil
+}
+
+// Document is one issuer's key document as read, before any format decides
+// which keys in it it can use. Err is set, and Data empty, when a URL could
+// not be fetched: an enforcement point configured the same way would deny,
+// so the report shows it against the issuer rather than refusing to start.
+type Document struct {
+	Issuer string
+	// Source is what the report names the document by: the file's base
+	// name, or the URL.
+	Source string
+	Data   []byte
+	Err    string
+}
+
+// LoadDocuments reads every source, in order, under the same rules as Load:
+// one source per issuer, https only (at every redirect), at most a megabyte,
+// and a local file that cannot be read is an error. Formats whose keys are
+// not Mandatum's Ed25519 keys parse the documents themselves.
+func (l Loader) LoadDocuments(ctx context.Context, sources []Source) ([]Document, error) {
+	seen := map[string]bool{}
+	out := make([]Document, 0, len(sources))
 	for _, s := range sources {
-		if _, dup := t.Issuers[s.Issuer]; dup {
+		if seen[s.Issuer] {
 			return nil, fmt.Errorf("keys for %q are configured twice; give each issuer one source", s.Issuer)
 		}
+		seen[s.Issuer] = true
 		if strings.HasPrefix(s.Location, "http://") {
 			// Refused as configuration, the way the library's AddSource
 			// refuses it, rather than recorded as a key that failed to load.
 			return nil, fmt.Errorf("keys for %q: %s is plaintext; key sources must be https", s.Issuer, s.Location)
 		}
-		ik := &diagnose.IssuerKeys{Source: s.Location}
-		var data []byte
-		var err error
+		d := Document{Issuer: s.Issuer, Source: s.Location}
 		if s.IsURL() {
-			data, err = l.fetch(ctx, s.Location)
+			data, err := l.fetch(ctx, s.Location)
+			if err != nil {
+				d.Err = err.Error()
+			}
+			d.Data = data
 		} else {
-			ik.Source = filepath.Base(s.Location)
-			data, err = os.ReadFile(s.Location)
+			d.Source = filepath.Base(s.Location)
+			data, err := os.ReadFile(s.Location)
 			if err != nil {
 				return nil, fmt.Errorf("reading keys for %q: %w", s.Issuer, err)
 			}
+			d.Data = data
 		}
-		if err == nil {
-			ik.Keys, ik.Skipped, err = ParseDocument(data)
-		}
-		if err != nil {
-			ik.Err = err.Error()
-		}
-		t.Issuers[s.Issuer] = ik
+		out = append(out, d)
 	}
-	return t, nil
+	return out, nil
 }
 
 func (l Loader) fetch(ctx context.Context, src string) ([]byte, error) {
