@@ -109,7 +109,7 @@ homebrew_casks:
       zsh: completions/whosent.zsh
       fish: completions/whosent.fish
     homepage: "https://github.com/kanywst/whosent"
-    description: "Delegation chain TUI: who sent this agent, and what may it still do"
+    description: "Who sent this agent? A TUI for delegation chains: JWT token exchange (act), Biscuit and Mandatum"
     repository:
       owner: kanywst
       name: homebrew-tap
@@ -142,7 +142,7 @@ signs:
 
 nfpms:
   - maintainer: kanywst
-    description: "Delegation chain TUI: who sent this agent, and what may it still do"
+    description: "Who sent this agent? A TUI for delegation chains: JWT token exchange (act), Biscuit and Mandatum"
     homepage: https://github.com/kanywst/whosent
     license: Apache-2.0
     formats:
