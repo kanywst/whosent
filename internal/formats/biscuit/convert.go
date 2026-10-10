@@ -281,7 +281,7 @@ func (a *analysis) sections(br *blockResult) []chain.Section {
 		if br.scopes != "" {
 			code.Lines = append(code.Lines, chain.Line{Kind: chain.LineCode, Value: strings.TrimSpace(br.scopes) + ";"})
 		}
-		for _, line := range strings.Split(strings.TrimSuffix(br.source, "\n"), "\n") {
+		for _, line := range strings.Split(strings.TrimSuffix(br.display, "\n"), "\n") {
 			if line != "" {
 				code.Lines = append(code.Lines, chain.Line{Kind: chain.LineCode, Value: line})
 			}

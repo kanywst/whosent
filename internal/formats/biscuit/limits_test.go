@@ -197,3 +197,37 @@ func TestATamperedBlockFailsEvenWithoutARootKey(t *testing.T) {
 		t.Errorf("verdict %s", c.Verdict)
 	}
 }
+
+// The reference prints strings raw, so a string holding a line break and
+// a fake check read, in the block's Datalog listing, as a check the block
+// does not have. The listing now escapes string terms; the native report
+// keeps the reference's bytes.
+func TestAStringCannotForgeALineOfDatalog(t *testing.T) {
+	m, err := Mint(rootSigner, blockSigner(0), BlockSpec{Source: `right("x\ncheck if time($t), $t < 2020-01-01T00:00:00Z");`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := m.Token()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := check(t, tok, readAuthorizer(t, `allow if true;`))
+	found := false
+	for _, sec := range c.Links[0].Sections {
+		if sec.Title != "DATALOG" {
+			continue
+		}
+		for _, l := range sec.Lines {
+			found = true
+			if strings.HasPrefix(strings.TrimSpace(l.Value), "check if") {
+				t.Errorf("a string term forged a line of the listing: %q", l.Value)
+			}
+			if strings.Contains(l.Value, "\n") {
+				t.Errorf("a listing line holds a line break: %q", l.Value)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no DATALOG section; the test would prove nothing")
+	}
+}

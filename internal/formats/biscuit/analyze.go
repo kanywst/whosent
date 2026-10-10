@@ -83,6 +83,9 @@ type blockResult struct {
 	findings []chain.Finding
 	// source is the block's Datalog as the reference prints it.
 	source string
+	// display is the same Datalog printed for a reader: string terms
+	// escaped, so one statement is always one line.
+	display string
 	// scopes is the block-level scope annotation, printed, if any.
 	scopes string
 	// checkSource are the block's checks, printed, with their outcome.
@@ -226,7 +229,8 @@ func (a *analysis) decode() {
 			br.set(RuleSymbols, chain.StatusFail, fmt.Sprintf("a scope names public key %d, which the key table does not define", k))
 			br.find(RuleSymbols, chain.SeverityFail, "b6.unknown_key", fmt.Sprintf("block %d trusts public key %d, which no block defines; the reference refuses to load the token (UnknownExternalKey)", br.index, k))
 		}
-		br.source = syms.PrintBlock(br.block)
+		br.source = a.exactSymbolsFor(br).PrintBlock(br.block)
+		br.display = syms.PrintBlock(br.block)
 		if len(br.block.Scopes) > 0 {
 			r := datalog.Rule{Scopes: br.block.Scopes}
 			br.scopes = syms.PrintRuleBody(r)
@@ -235,8 +239,14 @@ func (a *analysis) decode() {
 }
 
 // symbolsFor is the table a block's indices refer to: the token's, or for
-// a third-party block its own.
+// a third-party block its own. It prints for display (string terms
+// escaped), which is what everything drawn from it wants; exactSymbolsFor
+// prints byte for byte, for the native report.
 func (a *analysis) symbolsFor(br *blockResult) *datalog.SymbolTable {
+	return a.exactSymbolsFor(br).Display()
+}
+
+func (a *analysis) exactSymbolsFor(br *blockResult) *datalog.SymbolTable {
 	if !br.third {
 		return a.tokenSyms
 	}

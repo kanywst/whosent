@@ -13,6 +13,8 @@ import (
 // string is printed between quotes without escaping, as the reference does;
 // whatever reaches a terminal is made safe where it is drawn, not here.
 
+var displayEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\r", `\r`)
+
 func (t *SymbolTable) symbolOrPlaceholder(i uint64) string {
 	if s, ok := t.Symbol(i); ok {
 		return s
@@ -28,6 +30,9 @@ func (t *SymbolTable) PrintTerm(term Term) string {
 	case KindInteger:
 		return strconv.FormatInt(term.I, 10)
 	case KindString:
+		if t.display {
+			return `"` + displayEscaper.Replace(t.symbolOrPlaceholder(term.U)) + `"`
+		}
 		return `"` + t.symbolOrPlaceholder(term.U) + `"`
 	case KindDate:
 		return PrintDate(term.U)

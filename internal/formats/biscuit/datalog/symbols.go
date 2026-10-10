@@ -64,6 +64,20 @@ type SymbolTable struct {
 	symbols []string
 	index   map[string]uint64
 	keys    []PublicKey
+	// display escapes string terms when printing; see Display.
+	display bool
+}
+
+// Display returns a view of the table that prints for a reader rather
+// than byte for byte: a string term's backslashes, quotes and line breaks
+// are escaped. The reference prints strings raw, so a string holding a
+// line break and a fake "check if ..." reads, in a multi-line listing, as
+// a check the block does not have. Lookups are the table's own; only
+// printing differs.
+func (t *SymbolTable) Display() *SymbolTable {
+	c := *t
+	c.display = true
+	return &c
 }
 
 // NewSymbolTable returns a table holding only the default symbols.
