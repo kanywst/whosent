@@ -142,9 +142,16 @@ func TestDetect(t *testing.T) {
 	if got := New().Detect(wire); got != chain.Certain {
 		t.Errorf("a chain with Mandatum's media type is %v, want Certain", got)
 	}
+	// An ordinary JWT is in a shape this reader accepts, but claiming it
+	// would make every access token ambiguous with the JWT format. Only the
+	// Mandatum claims make an untyped link plausible.
 	plainJWT := `["eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ4In0.c2ln"]`
-	if got := New().Detect([]byte(plainJWT)); got != chain.Plausible {
-		t.Errorf("a JWT in the chain's shape is %v, want Plausible", got)
+	if got := New().Detect([]byte(plainJWT)); got != chain.NotMine {
+		t.Errorf("an ordinary JWT is %v, want NotMine", got)
+	}
+	untyped := `["eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ4IiwibWR0Ijp7fX0.c2ln"]`
+	if got := New().Detect([]byte(untyped)); got != chain.Plausible {
+		t.Errorf("an untyped link carrying mdt claims is %v, want Plausible", got)
 	}
 	for _, in := range []string{"", "not a chain", "{}", "[]"} {
 		if got := New().Detect([]byte(in)); got != chain.NotMine {

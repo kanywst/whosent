@@ -552,3 +552,35 @@ func TestConsequencesAreNotCountedAsFailures(t *testing.T) {
 		t.Errorf("multifault's three faults are not counted as three:\n%s", got)
 	}
 }
+
+// TestAssertedAuthorityIsUnknownNotZero: a prior actor named inside a JWT
+// has no stated authority. Its reach must not read "0/n", which would say
+// it holds nothing, and the legend must not call it unreadable.
+func TestAssertedAuthorityIsUnknownNotZero(t *testing.T) {
+	m := open(t, "jwt-okta-style", 140, 45)
+	got := plain(m)
+	var reach string
+	for _, l := range strings.Split(got, "\n") {
+		if strings.Contains(l, "reach") {
+			reach = l
+		}
+	}
+	if strings.Contains(reach, "0/2") || strings.Count(reach, "?") < 2 {
+		t.Errorf("the asserted actors' reach should read ?, not 0/2:\n%s", reach)
+	}
+	if !strings.Contains(got, "not in the token") || strings.Contains(got, "unreadable") {
+		t.Errorf("the legend should say the authority is not in the token:\n%s", got)
+	}
+}
+
+// TestAnAssertedLinkNeverGetsATick: in the vertical rail every link shows
+// its marks; an asserted one passed nothing that verified it.
+func TestAnAssertedLinkNeverGetsATick(t *testing.T) {
+	ticked := regexp.MustCompile(`link [01]\s+✓`)
+	for _, size := range [][2]int{{90, 30}, {70, 24}, {140, 45}} {
+		m := open(t, "jwt-okta-style", size[0], size[1])
+		if l := ticked.FindString(plain(m)); l != "" {
+			t.Errorf("%dx%d: an asserted link is ticked as verified: %q", size[0], size[1], l)
+		}
+	}
+}
