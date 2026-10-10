@@ -167,8 +167,11 @@ func (tr *translator) scope(s Scope) Scope {
 	if s.Kind == ScopePublicKey {
 		k, ok := tr.from.Key(s.Key)
 		if !ok {
-			// The reference does not check that a scope's key exists in
-			// the table either; it simply trusts no block for it.
+			// The reference's Scope::convert_from fails with
+			// UnknownExternalKey here, and the token does not load.
+			if tr.err == nil {
+				tr.err = fmt.Errorf("a scope names public key %d, which the key table does not define (UnknownExternalKey)", s.Key)
+			}
 			return Scope{Kind: ScopePublicKey, Key: ^uint64(0)}
 		}
 		return Scope{Kind: ScopePublicKey, Key: tr.to.InsertKey(k)}

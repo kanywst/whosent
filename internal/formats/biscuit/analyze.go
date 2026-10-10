@@ -219,6 +219,13 @@ func (a *analysis) decode() {
 			br.set(RuleSymbols, chain.StatusFail, fmt.Sprintf("refers to symbol %d, which no block defines", missing[0]))
 			br.find(RuleSymbols, chain.SeverityFail, "b6.unknown", fmt.Sprintf("block %d refers to symbol %d, which no block defines; no authorizer can load it", br.index, missing[0]))
 		}
+		if k, bad := unknownScopeKey(br.block, syms); bad {
+			// The reference converts every scope when it loads a block and
+			// fails with UnknownExternalKey on an index its table lacks; no
+			// authorizer can load such a token.
+			br.set(RuleSymbols, chain.StatusFail, fmt.Sprintf("a scope names public key %d, which the key table does not define", k))
+			br.find(RuleSymbols, chain.SeverityFail, "b6.unknown_key", fmt.Sprintf("block %d trusts public key %d, which no block defines; the reference refuses to load the token (UnknownExternalKey)", br.index, k))
+		}
 		br.source = syms.PrintBlock(br.block)
 		if len(br.block.Scopes) > 0 {
 			r := datalog.Rule{Scopes: br.block.Scopes}
@@ -237,6 +244,29 @@ func (a *analysis) symbolsFor(br *blockResult) *datalog.SymbolTable {
 	_ = t.Extend(br.symbols)
 	_ = t.ExtendKeys(br.keys)
 	return t
+}
+
+// unknownScopeKey finds a public-key scope, on the block, a rule or a
+// check, whose index the key table does not define.
+func unknownScopeKey(b datalog.Block, syms *datalog.SymbolTable) (uint64, bool) {
+	scopes := append([]datalog.Scope(nil), b.Scopes...)
+	for _, r := range b.Rules {
+		scopes = append(scopes, r.Scopes...)
+	}
+	for _, c := range b.Checks {
+		for _, q := range c.Queries {
+			scopes = append(scopes, q.Scopes...)
+		}
+	}
+	for _, s := range scopes {
+		if s.Kind != datalog.ScopePublicKey {
+			continue
+		}
+		if _, ok := syms.Key(s.Key); !ok {
+			return s.Key, true
+		}
+	}
+	return 0, false
 }
 
 func unknownSymbols(b datalog.Block, syms *datalog.SymbolTable) []uint64 {

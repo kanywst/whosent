@@ -6,7 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/kanywst/whosent/internal/formats/biscuit/datalog"
+	"github.com/kanywst/whosent/internal/formats/biscuit/pb"
 	"github.com/kanywst/whosent/pkg/chain"
 )
 
@@ -84,5 +87,49 @@ func TestSuppliedTimeIsDisclosed(t *testing.T) {
 		if f.Code == "b7.time_supplied" {
 			t.Error("an authorizer with its own time fact was told whosent supplied one")
 		}
+	}
+}
+
+// A scope that names a public-key index the table does not define makes
+// the reference refuse the token (UnknownExternalKey). whosent used to
+// read it as "trusts nothing" and could call the token VALID.
+func TestAScopeNamingAnUndefinedKeyIsRefused(t *testing.T) {
+	m, err := Mint(rootSigner, blockSigner(0), BlockSpec{Source: `right("a", "read"); check if true trusting ` + thirdSigner.Pub.String() + `;`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := m.Token()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sb := &tok.Blocks[0]
+	var blk pb.Block
+	if err := proto.Unmarshal(sb.Data, &blk); err != nil {
+		t.Fatal(err)
+	}
+	if len(blk.PublicKeys) == 0 {
+		t.Fatal("the scope's key was not interned; the test would prove nothing")
+	}
+	blk.PublicKeys = nil
+	data, err := proto.MarshalOptions{Deterministic: true}.Marshal(&blk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sb.Data = data
+	var payload []byte
+	if sb.Version == 1 {
+		payload = payloadAuthorityV1(data, sb.NextKey, 1)
+	} else {
+		payload = payloadV0(data, sb.NextKey, nil)
+	}
+	if sb.Signature, err = rootSigner.Sign(payload); err != nil {
+		t.Fatal(err)
+	}
+	c := check(t, tok, readAuthorizer(t, `allow if true;`))
+	if c.Verdict == chain.VerdictValid {
+		t.Fatal("a token the reference cannot load is VALID")
+	}
+	if s := statusOf(c, 0, RuleSymbols); s != chain.StatusFail {
+		t.Errorf("B6 is %s, want a failure naming the undefined key", s)
 	}
 }
