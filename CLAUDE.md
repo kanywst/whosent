@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-whosent reads Mandatum delegation chains (signed JWS links from a human sponsor down to an acting agent) and shows where trust breaks and how authority narrows. It is a TUI (`whosent [FILE]`, `whosent demo`) and a CLI (`check`, `ask`) over one engine, `pkg/diagnose`. The specification and the verifier live in [mandatum](https://github.com/kanywst/mandatum), which this module imports and is pinned to (`v0.2.0`). Pre-1.0, any mandatum minor release may change its API or its verdicts.
+whosent reads delegation chains and shows who they are rooted in, where trust breaks and how authority narrows. It is a TUI (`whosent [FILE]`, `whosent demo`) and a CLI (`check`, `ask`) over a format-neutral model, `pkg/chain`. Each token format is an adapter that checks its own rules and describes the result in that model; the view and the CLI render only the model. Mandatum is one format: its engine is `pkg/diagnose`, built on the Mandatum v0.2.0 reference verifier embedded in `internal/mandatum` (the upstream repo is archived).
 
 ## Commands
 
@@ -33,9 +33,11 @@ Look at the TUI without a terminal: `WHOSENT_DUMP=DIR go test ./internal/ui -run
 
 ## Layout
 
-- `pkg/diagnose`: the engine. `Diagnose(ctx, links, opts)` evaluates V1 to V9 for every link without stopping, builds the per-hop attenuation diff (`hop.go`), the authority matrix (`matrix.go`), the permission trace (`trace.go`), the JSON schemas (`json.go`), input detection (`input.go`), and the consistency guard (`guard.go`).
+- `pkg/chain`: the neutral model (`Chain`, `Link`, `Hop`, `Matrix`, sections), the `Adapter` / `Session` / `Asker` interfaces, the format `Registry` and its detection, and the `whosent.chain/v1` JSON. `pkg/chain/chaintest` is the conformance suite every adapter passes.
+- `internal/formats/<id>`: one adapter per format. `internal/formats/all` lists them, and is the only place a format is added. `internal/formats/fake` is a test-only adapter with shapes no real format has produced yet (asserted links, no matrix, no time); the view's tests render it. How to write one: [docs/adapters.md](docs/adapters.md).
+- `pkg/diagnose`: the Mandatum engine. `Diagnose(ctx, links, opts)` evaluates V1 to V9 for every link without stopping, builds the per-hop attenuation diff (`hop.go`), the authority matrix (`matrix.go`), the permission trace (`trace.go`), the JSON schemas (`json.go`), input detection (`input.go`), and the consistency guard (`guard.go`).
 - `internal/cmd`: cobra. `print.go` is the only path to the terminal.
-- `internal/ui`: Bubble Tea v2 (`charm.land/...`; anything under `github.com/charmbracelet/bubbletea` is stale). `text.go` holds `clean`, the only path for chain text into a view.
+- `internal/ui`: Bubble Tea v2 (`charm.land/...`; anything under `github.com/charmbracelet/bubbletea` is stale). Renders `pkg/chain` only. `scrub.go` rewrites every string of a chain or an answer the moment an adapter hands it over; `text.go` holds `clean`, which every renderer also applies.
 - `internal/trust`: trust file and `--jwks` loader, mirroring `internal/mandatum/jose/jwks.go`.
 - `internal/mandatum`: the Mandatum v0.2.0 reference packages (`mda`, `verify`, `jose`, `revoke`, `issue`), copied from the archived kanywst/mandatum. Do not change what they accept or refuse; see `internal/mandatum/README.md`.
 - `internal/demo`: mints every scenario with deterministic keys; `Emit` writes fixtures.
@@ -43,10 +45,11 @@ Look at the TUI without a terminal: `WHOSENT_DUMP=DIR go test ./internal/ui -run
 
 ## Invariants (do not break these)
 
-- **Agreement with the reference verifier.** The guard runs `verify.Verify` with the same memoized signature and revocation answers the diagnosis used, and compares the first failure `(Rule, Link)`. On disagreement, or if the library cannot run, mandatum's verdict wins, `Library.Consistent` is false, and the CLI exits 70. Tests inject disagreements to prove the guard is live (`guard_hook_test.go`); keep them. Call mandatum's exported functions (`verify.Attenuates`, `Result.Permits`, `mda.Digest`, `mda.ParseClaims`) instead of reimplementing them; where something must be copied (V1 structure, V4 time, V6 root, V9), copy the expression exactly.
+- **Agreement with the reference verifier (Mandatum).** The guard runs `verify.Verify` with the same memoized signature and revocation answers the diagnosis used, and compares the first failure `(Rule, Link)`. On disagreement, or if the library cannot run, mandatum's verdict wins, `Library.Consistent` is false, and the CLI exits 70. Tests inject disagreements to prove the guard is live (`guard_hook_test.go`); keep them. Call mandatum's exported functions (`verify.Attenuates`, `Result.Permits`, `mda.Digest`, `mda.ParseClaims`) instead of reimplementing them; where something must be copied (V1 structure, V4 time, V6 root, V9), copy the expression exactly.
 - **Parity at the edges.** `internal/trust` must accept and refuse exactly the key documents `jose.NewJWKS` does, and `pkg/diagnose/input.go` must read a tools/call body exactly as mandatum v0.2.0's `pkg/mcp/http.go` did (its parsing path is copied as the oracle in `pkg/diagnose/mcp_oracle_test.go`). Both have tests that run the reference code on the same input. Fix the code, not the test.
 - **Not checked is never pass.** Missing keys, revocation set or audience make a rule UNCHECKED. VALID needs every rule checked; AUTHORITATIVE needs VALID with no stubbed input. UNCHECKED, ERROR and SKIPPED never render green and never use the pass glyph. No state is signalled by colour alone (NO_COLOR, `--ascii`).
-- **Untrusted text is escaped at the boundary.** Every string from a chain, a key document, a library error or user input goes through `termsafe.Text` (`print.go` in cmd, `clean` in ui) or `termsafe.JSON`. `hostile_test.go` in both packages feeds escape sequences, OSC 52, CR/LF and bidi through every field and view; extend it when you add a field.
+- **Untrusted text is escaped at the boundary, never by adapters.** Every string from a chain, a key document, a library error or user input goes through `termsafe.Text` (`print.go` in cmd; `scrub` on ingest and `clean` on render in ui) or `termsafe.JSON`. `scrub` walks the model by reflection, so a new field is covered without anyone remembering; a field it must not touch is tagged `whosent:"raw"` (an opaque handle passed back to the adapter, never drawn) or `whosent:"lines"` (multi-line, scrubbed per line). `hostile_test.go` in both packages feeds escape sequences, OSC 52, CR/LF and bidi through every field and view, including an adapter whose every string is hostile; extend it when you add a field.
+- **Adapters pass `chaintest`.** It encodes what the view cannot check for itself: VALID only with every rule checked and holding, an OK link has no unchecked rule (or it would be drawn as verified), an asserted link's unverifiable rules are not-applicable rather than unchecked, everything below a break is unreached, the matrix has a cell per link, and the format's demos open, scrub and simulate. A failing suite is a bug in the adapter.
 - **The chain never drives the network.** Issuer to key mapping comes from flags and the trust file only. Fetches are https-only including redirects, 1 MiB, 5s.
 - **Width.** `View()` is pure and every line fits the terminal at every size in the sweep. Sizing lives in one place.
 - **Motion is optional.** Animation is a `tea.Tick` frame counter, deterministic per frame, off with `--no-motion`, when not a TTY, and in tests. The idle screen does not redraw.
@@ -59,3 +62,4 @@ Look at the TUI without a terminal: `WHOSENT_DUMP=DIR go test ./internal/ui -run
 - No em dashes anywhere: code, comments, docs, commit messages. Use a colon, parentheses or a plain hyphen.
 - Commits: English, conventional commits with a scope (`feat(ui): ...`, `fix(diagnose): ...`), one logical change each.
 - A flag, key, exit code or JSON field change also updates README.md, `man/man1/whosent.1`, and `make completions`.
+- Demo scenario names are unique across formats; a new format's scenarios start with its ID (`biscuit-...`).
