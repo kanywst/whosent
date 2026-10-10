@@ -367,6 +367,21 @@ func (a *analysis) verifySignatures() {
 		}
 	}
 	a.verifyProof(a.blocks[n-1])
+	if a.blocks[0].status(RuleSignature) == chain.StatusUnchecked {
+		// Each later block verifies against the key the block above handed
+		// on, but with the authority block unauthenticated that chain is
+		// rooted in nothing: anyone can mint every block of it. The links
+		// still check out against each other, and say so, but none of them
+		// is verified, so none of them may look it.
+		for _, br := range a.blocks[1:] {
+			if br.status(RuleSignature) == chain.StatusPass {
+				br.set(RuleSignature, chain.StatusUnchecked, fmt.Sprintf("signed with the key block %d handed on, but the authority block is unauthenticated (no --root-key), so anyone could have minted this block", br.index-1))
+			}
+		}
+		if last := a.blocks[n-1]; last.status(RuleProof) == chain.StatusPass {
+			last.set(RuleProof, chain.StatusUnchecked, "consistent with the last block, but the token is rooted in an unauthenticated authority block")
+		}
+	}
 	a.signaturesOK = true
 	for _, br := range a.blocks {
 		for _, r := range []string{RuleFormat, RuleVersion, RuleSignature, RuleThirdParty, RuleProof, RuleSymbols} {

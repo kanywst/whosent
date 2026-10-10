@@ -183,3 +183,17 @@ func TestP256KeysAreSignedInTheirCompressedForm(t *testing.T) {
 		})
 	}
 }
+
+// Without a root key, a block whose signature does not match the key the
+// block above handed on is still a failure: that much is checkable.
+func TestATamperedBlockFailsEvenWithoutARootKey(t *testing.T) {
+	tok := mintThree(t, false)
+	tok.Blocks[1].Signature[5] ^= 1
+	c := analyze(tok, Options{Revoked: map[string]bool{}, Limits: datalog.DefaultLimits}, testAt, nil).chain("test")
+	if s := statusOf(c, 1, RuleSignature); s != chain.StatusFail {
+		t.Errorf("a tampered block 1 is %s without a root key, want a failure", s)
+	}
+	if c.Verdict != chain.VerdictInvalid {
+		t.Errorf("verdict %s", c.Verdict)
+	}
+}

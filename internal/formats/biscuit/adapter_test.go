@@ -140,8 +140,16 @@ func TestWithoutAnAuthorizerOnlyExpiryIsEvaluated(t *testing.T) {
 	if c.Links[0].Check(RuleSignature).Status != chain.StatusUnchecked {
 		t.Error("the authority block's signature was checked without a root key")
 	}
-	if c.Links[1].Check(RuleSignature).Status != chain.StatusPass {
-		t.Error("block 1's signature should verify against block 0's next key without any root key")
+	// Block 1 does verify against the key block 0 handed on, but block 0
+	// is unauthenticated, so anyone could have minted both: the link is
+	// consistent, not verified, and must not look verified.
+	if s := c.Links[1].Check(RuleSignature); s.Status != chain.StatusUnchecked || !strings.Contains(s.Detail, "handed on") {
+		t.Errorf("block 1's signature is %s (%q); want unchecked, saying it matches the key block 0 handed on", s.Status, s.Detail)
+	}
+	for _, l := range c.Links {
+		if l.State == chain.LinkOK {
+			t.Errorf("block %d looks verified in a token rooted in no key", l.Index)
+		}
 	}
 	expired := evaluate(t, "biscuit-unchecked", 25*time.Minute)
 	if expired.Verdict != chain.VerdictInvalid || expired.BreakAt != 2 {
