@@ -194,6 +194,8 @@ type temp struct {
 	base   *SymbolTable
 	offset uint64
 	extra  []string
+	// b is the run's budget; nil outside an authorization.
+	b *budget
 }
 
 func newTemp(base *SymbolTable) *temp {

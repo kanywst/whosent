@@ -1,6 +1,7 @@
 package datalog
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -213,6 +214,12 @@ func headBound(r Rule) bool {
 // authorize does: load the blocks and the authorizer's facts and rules,
 // run them to a fixpoint, then evaluate every check, then the policies.
 func Authorize(blocks []TokenBlock, prog Program, limits Limits) Result {
+	return AuthorizeContext(context.Background(), blocks, prog, limits)
+}
+
+// AuthorizeContext is Authorize, stopping with a LimitError when ctx is
+// done. The run, the checks and the policies share one budget.
+func AuthorizeContext(ctx context.Context, blocks []TokenBlock, prog Program, limits Limits) Result {
 	res := Result{ErrOrigin: -2}
 	if len(blocks) > MaxBlocks {
 		res.Err = fmt.Errorf("the token has %d blocks; at most %d can be evaluated", len(blocks), MaxBlocks)
@@ -276,7 +283,7 @@ func Authorize(blocks []TokenBlock, prog Program, limits Limits) Result {
 		w.AddRule(AuthorizerID, trustedOrigins(cr.Scopes, defaultTrust, AuthorizerID, keyBlocks), cr)
 	}
 
-	if err := w.Run(limits); err != nil {
+	if err := w.RunContext(ctx, limits); err != nil {
 		res.Err = err
 		var re *RuleError
 		if errors.As(err, &re) {

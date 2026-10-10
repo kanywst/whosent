@@ -1,7 +1,9 @@
 package datalog
 
 import (
+	"context"
 	"encoding/binary"
+	"errors"
 	"math/bits"
 	"sort"
 	"time"
@@ -53,13 +55,22 @@ type Limits struct {
 // time limit is one millisecond, which is a resource guard rather than a
 // rule: on a slow or busy machine it would make the same token pass or
 // fail by chance, so this engine allows more time and reports reaching it
-// as an error, never as a verdict.
-var DefaultLimits = Limits{MaxFacts: 1000, MaxIterations: 100, MaxTime: 2 * time.Second}
+// as an error, never as a verdict. Real tokens evaluate in microseconds;
+// 200 milliseconds is two hundred times the reference's allowance and
+// still short enough that a hostile token cannot stall the view, which
+// re-evaluates on every step of the clock.
+var DefaultLimits = Limits{MaxFacts: 1000, MaxIterations: 100, MaxTime: 200 * time.Millisecond}
 
 // LimitError is a run that hit one of its limits.
 type LimitError struct{ Kind string }
 
 func (e *LimitError) Error() string { return "run limit reached: " + e.Kind }
+
+// IsLimitError reports whether err is a run that hit one of its limits.
+func IsLimitError(err error) bool {
+	var e *LimitError
+	return errors.As(err, &e)
+}
 
 type bucket struct {
 	facts []Fact
@@ -93,6 +104,15 @@ func (fs *FactSet) insert(o Origin, f Fact) bool {
 	b.facts = append(b.facts, f)
 	fs.n++
 	return true
+}
+
+func (fs *FactSet) has(o Origin, f Fact) bool {
+	b, ok := fs.by[o]
+	if !ok {
+		return false
+	}
+	_, dup := b.keys[factKey(f)]
+	return dup
 }
 
 func (fs *FactSet) merge(other *FactSet) {
@@ -219,7 +239,7 @@ func bodyVariables(r Rule) map[uint64]bool {
 // the predicates, and the union of their origins. yield returns false to
 // stop. It is the reference's CombineIt: variables are bound left to right,
 // and a variable already bound must match again.
-func combine(preds []Predicate, facts []originFact, vars map[uint64]Term, varset map[uint64]bool, origin Origin, yield func(Origin, map[uint64]Term) bool) bool {
+func combine(b *budget, preds []Predicate, facts []originFact, vars map[uint64]Term, varset map[uint64]bool, origin Origin, yield func(Origin, map[uint64]Term) bool) bool {
 	if len(preds) == 0 {
 		if len(vars) != len(varset) {
 			return true
@@ -228,6 +248,9 @@ func combine(preds []Predicate, facts []originFact, vars map[uint64]Term, varset
 	}
 	p := preds[0]
 	for _, of := range facts {
+		if !b.tick() {
+			return false
+		}
 		if !matchPreds(p, of.fact.Predicate) {
 			continue
 		}
@@ -256,7 +279,7 @@ func combine(preds []Predicate, facts []originFact, vars map[uint64]Term, varset
 		if !ok {
 			continue
 		}
-		if !combine(preds[1:], facts, next, varset, origin|of.origin, yield) {
+		if !combine(b, preds[1:], facts, next, varset, origin|of.origin, yield) {
 			return false
 		}
 	}
@@ -264,8 +287,9 @@ func combine(preds []Predicate, facts []originFact, vars map[uint64]Term, varset
 }
 
 // exprsHold evaluates a rule's expressions for one combination.
-func exprsHold(r Rule, vars map[uint64]Term, syms *SymbolTable) (bool, error) {
+func exprsHold(r Rule, vars map[uint64]Term, syms *SymbolTable, b *budget) (bool, error) {
 	ts := newTemp(syms)
+	ts.b = b
 	for _, e := range r.Expressions {
 		v, err := evaluate(e.Ops, vars, ts)
 		if err != nil {
@@ -311,6 +335,8 @@ type World struct {
 	rules      []scopedRule
 	Iterations int
 	syms       *SymbolTable
+	// b bounds the work done by Run and the queries after it.
+	b *budget
 }
 
 // NewWorld returns an empty world over a symbol table.
@@ -338,16 +364,25 @@ func (e *RuleError) Unwrap() error { return e.Err }
 
 // Run applies the rules until no new fact appears.
 func (w *World) Run(limits Limits) error {
-	deadline := time.Now().Add(limits.MaxTime)
+	return w.RunContext(context.Background(), limits)
+}
+
+// RunContext is Run, stopping early when ctx is done. The budget it starts
+// also bounds the queries made afterwards, so checks and policies share
+// the run's deadline rather than each getting a fresh one.
+func (w *World) RunContext(ctx context.Context, limits Limits) error {
+	w.b = newBudget(ctx, limits)
+	b := w.b
 	index := 0
 	for {
 		fresh := newFactSet()
+		added := 0
 		for _, sr := range w.rules {
 			visible := w.Facts.visible(sr.trust)
 			varset := bodyVariables(sr.rule)
 			var err error
-			combine(sr.rule.Body, visible, map[uint64]Term{}, varset, 0, func(o Origin, vars map[uint64]Term) bool {
-				ok, e := exprsHold(sr.rule, vars, w.syms)
+			combine(b, sr.rule.Body, visible, map[uint64]Term{}, varset, 0, func(o Origin, vars map[uint64]Term) bool {
+				ok, e := exprsHold(sr.rule, vars, w.syms, b)
 				if e != nil {
 					err = e
 					return false
@@ -359,10 +394,29 @@ func (w *World) Run(limits Limits) error {
 				if !bound {
 					return true
 				}
-				fresh.insert(o|originOf(sr.origin), f)
+				fo := o | originOf(sr.origin)
+				if fresh.insert(fo, f) && !w.Facts.has(fo, f) {
+					added++
+					// The reference counts facts after merging an
+					// iteration's new facts; one iteration can produce
+					// far more than the limit, so it is counted as the
+					// facts arrive. The outcome is the same error.
+					if w.Facts.Len()+added >= limits.MaxFacts {
+						b.err = &LimitError{"TooManyFacts"}
+						return false
+					}
+				}
 				return true
 			})
+			if b.err != nil {
+				w.Iterations += index
+				return b.err
+			}
 			if err != nil {
+				if IsLimitError(err) {
+					w.Iterations += index
+					return err
+				}
 				return &RuleError{Origin: sr.origin, Err: err}
 			}
 		}
@@ -380,7 +434,7 @@ func (w *World) Run(limits Limits) error {
 			w.Iterations += index
 			return &LimitError{"TooManyFacts"}
 		}
-		if time.Now().After(deadline) {
+		if !time.Now().Before(b.deadline) {
 			w.Iterations += index
 			return &LimitError{"Timeout"}
 		}
@@ -397,8 +451,8 @@ func (w *World) QueryMatch(q Rule, trust Origin) (bool, error) {
 	varset := bodyVariables(q)
 	found := false
 	var err error
-	combine(q.Body, visible, map[uint64]Term{}, varset, 0, func(_ Origin, vars map[uint64]Term) bool {
-		ok, e := exprsHold(q, vars, w.syms)
+	combine(w.b, q.Body, visible, map[uint64]Term{}, varset, 0, func(_ Origin, vars map[uint64]Term) bool {
+		ok, e := exprsHold(q, vars, w.syms, w.b)
 		if e != nil {
 			err = e
 			return false
@@ -412,6 +466,9 @@ func (w *World) QueryMatch(q Rule, trust Origin) (bool, error) {
 		found = true
 		return false
 	})
+	if w.b != nil && w.b.err != nil {
+		return false, w.b.err
+	}
 	if err != nil {
 		return false, err
 	}
@@ -425,9 +482,9 @@ func (w *World) QueryMatchAll(q Rule, trust Origin) (bool, error) {
 	varset := bodyVariables(q)
 	found, failed := false, false
 	var err error
-	combine(q.Body, visible, map[uint64]Term{}, varset, 0, func(_ Origin, vars map[uint64]Term) bool {
+	combine(w.b, q.Body, visible, map[uint64]Term{}, varset, 0, func(_ Origin, vars map[uint64]Term) bool {
 		found = true
-		ok, e := exprsHold(q, vars, w.syms)
+		ok, e := exprsHold(q, vars, w.syms, w.b)
 		if e != nil {
 			err = e
 			return false
@@ -438,6 +495,9 @@ func (w *World) QueryMatchAll(q Rule, trust Origin) (bool, error) {
 		}
 		return true
 	})
+	if w.b != nil && w.b.err != nil {
+		return false, w.b.err
+	}
 	if err != nil {
 		return false, err
 	}

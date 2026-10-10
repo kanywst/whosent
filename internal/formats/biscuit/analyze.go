@@ -711,6 +711,22 @@ func (a *analysis) recordError(res datalog.Result) {
 		return
 	}
 	detail := "evaluating the checks failed: " + res.Err.Error()
+	if datalog.IsLimitError(res.Err) {
+		// A run that hits its limits is refused by the reference whatever
+		// facts the authorizer brings, so this is an error even when only
+		// expiry was being evaluated. Never a pass, never "not checked".
+		detail = "evaluating the token's checks hit the engine's limits (" + res.Err.Error() + "); the reference refuses a token that does this"
+		a.chainFinding = append(a.chainFinding, chain.Finding{Rule: RuleChecks, Link: -1, Hop: -1, Severity: chain.SeverityError, Code: "b7.limit", Detail: detail})
+		for _, br := range a.blocks {
+			if len(br.block.Checks) == 0 && len(br.block.Rules) == 0 {
+				br.set(RuleChecks, chain.StatusNotApplicable, "")
+				continue
+			}
+			br.set(RuleChecks, chain.StatusError, "the run hit its limits")
+		}
+		a.b7Reason = detail
+		return
+	}
 	if a.timeOnly {
 		// Without the authorizer's facts an error here may never happen
 		// with them, so it decides nothing.

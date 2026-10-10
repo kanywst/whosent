@@ -3,7 +3,6 @@ package datalog
 import (
 	"errors"
 	"math"
-	"regexp"
 	"strings"
 )
 
@@ -51,6 +50,9 @@ func evaluate(ops []Op, values map[uint64]Term, syms *temp) (Term, error) {
 		return e, true
 	}
 	for _, op := range ops {
+		if !syms.b.tick() {
+			return Term{}, syms.b.err
+		}
 		switch op.Kind {
 		case OpValue:
 			if op.Value.Kind == KindVariable {
@@ -123,6 +125,12 @@ func withClosure(op Op, left Term, params []uint64, body []Op, values map[uint64
 	case op.Binary == TryOr && len(params) == 0:
 		v, err := evaluate(body, vals, syms)
 		if err != nil {
+			// try_or turns an expression error into its default, but a
+			// run that has hit its limits is over: swallowing that here
+			// would let the rest of the run go on past the deadline.
+			if IsLimitError(err) {
+				return Term{}, err
+			}
 			return left, nil
 		}
 		return v, nil
@@ -309,7 +317,7 @@ func applyBinary(op Op, l, r Term, syms *temp) (Term, error) {
 			case Suffix:
 				return boolOf(strings.HasSuffix(a, b))
 			case Regex:
-				re, err := regexp.Compile(b)
+				re, err := syms.b.compile(b)
 				if err != nil {
 					// The reference treats a pattern it cannot compile as
 					// one that matches nothing.
