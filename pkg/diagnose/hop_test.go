@@ -3,16 +3,15 @@ package diagnose_test
 import (
 	"crypto/ed25519"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/kanywst/mandatum/pkg/issue"
-	"github.com/kanywst/mandatum/pkg/jose"
-	"github.com/kanywst/mandatum/pkg/mda"
-	"github.com/kanywst/mandatum/pkg/verify"
+	"github.com/kanywst/whosent/internal/mandatum/issue"
+	"github.com/kanywst/whosent/internal/mandatum/jose"
+	"github.com/kanywst/whosent/internal/mandatum/mda"
+	"github.com/kanywst/whosent/internal/mandatum/verify"
 
 	"github.com/kanywst/whosent/internal/demo"
 	"github.com/kanywst/whosent/pkg/diagnose"
@@ -309,38 +308,28 @@ func TestIssueDelegateTrustsTheCallersParentClaims(t *testing.T) {
 	}
 }
 
-// ChainMetaKey is copied from mandatum's pkg/mcp so that CEL stays out of
-// the build. This keeps the copy honest without importing it.
+// ChainMetaKey is the key mandatum's MCP enforcement point reads a chain
+// from. The oracle in mcp_oracle_test.go carries the v0.2.0 value; this keeps
+// the tool's copy equal to it.
 func TestChainMetaKeyMatchesMandatum(t *testing.T) {
-	out, err := exec.Command("go", "list", "-m", "-f", "{{.Dir}}", "github.com/kanywst/mandatum").Output()
-	if err != nil {
-		t.Skipf("go list unavailable: %v", err)
-	}
-	src, err := readFile(strings.TrimSpace(string(out)) + "/pkg/mcp/http.go")
-	if err != nil {
-		t.Skipf("mandatum source unavailable: %v", err)
-	}
-	if !strings.Contains(src, `ChainMetaKey = "`+diagnose.ChainMetaKey+`"`) {
-		t.Errorf("mandatum's ChainMetaKey is no longer %q", diagnose.ChainMetaKey)
+	if diagnose.ChainMetaKey != mcpChainMetaKey {
+		t.Errorf("ChainMetaKey is %q, mandatum's enforcement point reads %q", diagnose.ChainMetaKey, mcpChainMetaKey)
 	}
 }
 
-// The binary must not link a CEL evaluator it never uses.
+// The binary must not link a CEL evaluator it never uses, and must not
+// depend on the archived mandatum module: the reference code it needs lives
+// in internal/mandatum.
 func TestBinaryDoesNotImportCEL(t *testing.T) {
 	out, err := exec.Command("go", "list", "-deps", "github.com/kanywst/whosent/cmd/whosent").Output()
 	if err != nil {
 		t.Skipf("go list unavailable: %v", err)
 	}
 	for _, dep := range strings.Fields(string(out)) {
-		if strings.HasPrefix(dep, "cel.dev/") || strings.Contains(dep, "mandatum/pkg/mcp") || strings.Contains(dep, "mandatum/pkg/authzen") {
+		if strings.HasPrefix(dep, "cel.dev/") || strings.HasPrefix(dep, "github.com/kanywst/mandatum") {
 			t.Errorf("whosent imports %s", dep)
 		}
 	}
-}
-
-func readFile(p string) (string, error) {
-	b, err := os.ReadFile(p)
-	return string(b), err
 }
 
 // instance is a concrete request a capability permits: the least a holder

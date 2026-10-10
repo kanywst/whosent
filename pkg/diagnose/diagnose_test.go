@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kanywst/mandatum/pkg/jose"
-	"github.com/kanywst/mandatum/pkg/mda"
-	"github.com/kanywst/mandatum/pkg/revoke"
-	"github.com/kanywst/mandatum/pkg/verify"
+	"github.com/kanywst/whosent/internal/mandatum/jose"
+	"github.com/kanywst/whosent/internal/mandatum/mda"
+	"github.com/kanywst/whosent/internal/mandatum/revoke"
+	"github.com/kanywst/whosent/internal/mandatum/verify"
 
 	"github.com/kanywst/whosent/internal/demo"
 	"github.com/kanywst/whosent/pkg/diagnose"

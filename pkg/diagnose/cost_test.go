@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kanywst/mandatum/pkg/jose"
-	"github.com/kanywst/mandatum/pkg/mda"
+	"github.com/kanywst/whosent/internal/mandatum/jose"
+	"github.com/kanywst/whosent/internal/mandatum/mda"
 
 	"github.com/kanywst/whosent/pkg/diagnose"
 )

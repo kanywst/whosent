@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/kanywst/mandatum/pkg/mda"
+	"github.com/kanywst/whosent/internal/mandatum/mda"
 
 	"github.com/kanywst/whosent/pkg/diagnose"
 )

@@ -1,44 +1,24 @@
 package diagnose_test
 
 import (
-	"bytes"
-	"context"
 	"crypto/ed25519"
 	"encoding/json"
-	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/kanywst/mandatum/pkg/authzen"
-	"github.com/kanywst/mandatum/pkg/jose"
-	"github.com/kanywst/mandatum/pkg/mcp"
-	"github.com/kanywst/mandatum/pkg/mda"
-	"github.com/kanywst/mandatum/pkg/sequence"
-	"github.com/kanywst/mandatum/pkg/verify"
-
+	"github.com/kanywst/whosent/internal/mandatum/jose"
+	"github.com/kanywst/whosent/internal/mandatum/mda"
 	"github.com/kanywst/whosent/pkg/diagnose"
 )
 
-// This test imports mandatum's pkg/mcp, and with it CEL, so that the oracle
-// is the enforcement point itself rather than a reading of its source. Test
-// imports do not reach the binary; TestBinaryDoesNotImportCEL guards that.
+// The oracle is mcpRead, the request-reading half of mandatum's MCP
+// enforcement point as it stood at v0.2.0, copied in mcp_oracle_test.go.
+// mandatum is archived, so that behaviour is frozen and the copy cannot
+// drift from it.
 
-type denyAll struct{}
-
-func (denyAll) Evaluate(context.Context, authzen.Request) (authzen.Decision, error) {
-	return authzen.Decision{}, nil
-}
-
-type notRevoked struct{}
-
-func (notRevoked) IsRevoked(context.Context, string) (bool, error) { return false, nil }
-
-// oneLink signs a single parseable link whose issuer names the chain, so the
-// enforcement point's denial, which quotes the issuer whose signature it
-// could not check, says which chain it read.
+// oneLink signs a single parseable link whose issuer names the chain, so
+// the outcome says which chain was read.
 func oneLink(t *testing.T, issuer string) string {
 	t.Helper()
 	_, priv, err := ed25519.GenerateKey(nil)
@@ -56,42 +36,22 @@ func oneLink(t *testing.T, issuer string) string {
 	return string(raw)
 }
 
-// enforcementPoint reports what mandatum's MCP middleware made of a request
-// body: "forwarded" (it checked nothing), "unreadable" (it refused the
-// request before verifying anything), or the issuer of the chain it went on
-// to verify.
-func enforcementPoint(t *testing.T, body string, issuers ...string) string {
+// enforcementPoint reports what mandatum's MCP middleware makes of a
+// request body: "forwarded" (it checks nothing), "unreadable" (it refuses
+// the request before verifying anything), or the issuer of the chain it
+// goes on to verify.
+func enforcementPoint(t *testing.T, body string) string {
 	t.Helper()
-	v, err := verify.New(jose.NewKeyRing(), notRevoked{}, "aud")
-	if err != nil {
-		t.Fatal(err)
-	}
-	seq, err := sequence.NewEvaluator(sequence.NewMemoryStore())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var logs bytes.Buffer
-	e, err := mcp.New(v, mcp.CatalogFunc(func(string, map[string]any) (mcp.Facts, error) { return mcp.Facts{}, nil }),
-		denyAll{}, seq, mcp.WithLogger(slog.New(slog.NewTextHandler(&logs, nil))))
-	if err != nil {
-		t.Fatal(err)
-	}
-	h := e.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body)))
+	out := mcpRead([]byte(body))
 	switch {
-	case rec.Code == http.StatusOK:
+	case out.Forwarded:
 		return "forwarded"
-	case strings.Contains(rec.Body.String(), "could not be read"), strings.Contains(rec.Body.String(), "not a JSON-RPC message"):
+	case out.Err != nil:
 		return "unreadable"
+	case len(out.Chain) == 0:
+		t.Fatal("the oracle returned neither an error nor a chain")
 	}
-	for _, iss := range issuers {
-		if strings.Contains(logs.String(), iss) {
-			return iss
-		}
-	}
-	t.Fatalf("cannot tell what the enforcement point did: %d %s\n%s", rec.Code, rec.Body, logs.String())
-	return ""
+	return out.Chain[0].Claims.Issuer
 }
 
 // whosentReads reports what this tool makes of the same body: "unreadable"
@@ -115,9 +75,9 @@ func whosentReads(t *testing.T, body string) string {
 // A tools/call request must mean one thing. If this tool read a different
 // chain from the one the enforcement point verifies, it would diagnose a
 // decoy, and an attacker could put a clean chain where whosent looks and the
-// real one where mandatum does. Every case runs the same bytes through
-// mandatum's own middleware and through ReadInput, and both must land on the
-// same chain, or both refuse.
+// real one where mandatum does. Every case runs the same bytes through the
+// enforcement point's own reading of a request and through ReadInput, and
+// both must land on the same chain, or both refuse.
 func TestToolCallsAreReadExactlyAsTheEnforcementPointReadsThem(t *testing.T) {
 	realLink, decoy := oneLink(t, "real-issuer"), oneLink(t, "decoy-issuer")
 	k := diagnose.ChainMetaKey
@@ -160,7 +120,7 @@ func TestToolCallsAreReadExactlyAsTheEnforcementPointReadsThem(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ep := enforcementPoint(t, tt.body, "real-issuer", "decoy-issuer")
+			ep := enforcementPoint(t, tt.body)
 			if ep != tt.want {
 				t.Fatalf("the enforcement point did %q, the test expected %q; the oracle has moved", ep, tt.want)
 			}
@@ -177,7 +137,7 @@ func TestToolCallsAreReadExactlyAsTheEnforcementPointReadsThem(t *testing.T) {
 		{"a request with no method is forwarded unchecked", enc(map[string]any{"jsonrpc": "2.0", "id": 1, "params": params(realLink)})},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			if ep := enforcementPoint(t, tt.body, "real-issuer"); ep != "forwarded" {
+			if ep := enforcementPoint(t, tt.body); ep != "forwarded" {
 				t.Fatalf("the enforcement point did %q; the oracle has moved", ep)
 			}
 			if got := whosentReads(t, tt.body); got != "unreadable" {

@@ -39,8 +39,9 @@ reported
 .B VALID
 when every rule was checked for every link and held.
 .PP
-On every run, whosent also hands the same chain and the same answers to
-mandatum's own verifier. If the two disagree, mandatum's verdict wins, the
+On every run, whosent also hands the same chain and the same answers to the
+Mandatum v0.2.0 reference verifier it embeds. If the two disagree, the
+reference verdict wins, the
 disagreement is shown as an internal inconsistency, and the exit status is 70.
 .SH INPUT
 The chain is read from \fIFILE\fR, or from standard input when \fIFILE\fR is
@@ -108,7 +109,8 @@ Print a completion script for \fBbash\fR, \fBzsh\fR, \fBfish\fR or
 \fBpowershell\fR.
 .TP
 .B version
-Print whosent's version and the mandatum version it was built against.
+Print whosent's version and the version of the Mandatum reference verifier
+it embeds.
 .SH OPTIONS
 .TP
 .BI \-\-trust " FILE"
@@ -345,6 +347,6 @@ rather than a public issue. See the security policy at
 https://github.com/kanywst/whosent/security/policy.
 .SH SEE ALSO
 The Mandatum Delegation Assertion specification:
-https://github.com/kanywst/mandatum/blob/main/docs/spec/delegation\-assertion.md
+https://github.com/kanywst/whosent/blob/main/docs/mandatum\-spec.md
 .SH COPYRIGHT
 Copyright \(co 2026 whosent. Licensed under the Apache License, Version 2.0.

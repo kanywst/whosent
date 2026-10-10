@@ -77,8 +77,8 @@ jobs:
             whosent is a Go TUI and CLI for reading Mandatum delegation chains: signed
             JWS links from a human sponsor down to an acting agent. pkg/diagnose evaluates
             the verification rules V1 to V9 for every link without stopping at the first
-            failure; github.com/kanywst/mandatum is the library whose verifier it must
-            agree with. internal/cmd is the cobra surface, internal/ui the Bubble Tea
+            failure; internal/mandatum is the Mandatum v0.2.0 reference verifier, copied
+            from the archived github.com/kanywst/mandatum, that it must agree with. internal/cmd is the cobra surface, internal/ui the Bubble Tea
             model, internal/trust the key loader, internal/termsafe the escaping of
             untrusted text, and `check` is meant to be usable as a CI gate.
 
@@ -105,8 +105,10 @@ jobs:
                a claim value that skips the choke points.
 
             4. Parity at the edges. The trust loader and the tools/call reader mirror
-               pkg/jose and pkg/mcp in mandatum; a change on either side has to keep the
-               parity tests honest rather than loosening them.
+               internal/mandatum/jose and the v0.2.0 MCP parsing copied in
+               pkg/diagnose/mcp_oracle_test.go; a change on either side has to keep the
+               parity tests honest rather than loosening them. Any change to what
+               internal/mandatum accepts or refuses is a serious finding.
 
             5. Test shape. Chains are minted per run with throwaway keys rather than
                committed, because a committed assertion expires. Rendering tests must

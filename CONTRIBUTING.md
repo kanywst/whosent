@@ -30,7 +30,7 @@ CI runs the same three, plus the race detector on Linux, macOS and Windows. `mak
 
 ## Things worth knowing about the codebase
 
-- `pkg/diagnose` evaluates every rule with mandatum's own comparisons. Where mandatum exports a function (`verify.Attenuates`, `Result.Permits`, `mda.Digest`), it is called rather than reimplemented. Where it does not, the expression is copied exactly and the guard checks the result.
+- `pkg/diagnose` evaluates every rule with the reference verifier's own comparisons (`internal/mandatum`, Mandatum v0.2.0). Where it exports a function (`verify.Attenuates`, `Result.Permits`, `mda.Digest`), it is called rather than reimplemented. Where it does not, the expression is copied exactly and the guard checks the result.
 - The guard (`pkg/diagnose/guard.go`) runs `verify.Verify` on every diagnosis and fails closed. A change that makes it pass more often needs a very good reason.
 - Not checked is never pass. `StatusUnchecked`, `StatusError` and `StatusSkipped` each have their own glyph and colour, and none of them looks like a pass.
 - Every string from a chain, a key document or a library error goes through `internal/termsafe` before it is printed or rendered. In `internal/cmd` that is `print.go`; in `internal/ui` it is `clean` in `text.go`. Do not print around them.

@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kanywst/mandatum/pkg/verify"
+	"github.com/kanywst/whosent/internal/mandatum/verify"
 	"github.com/spf13/cobra"
 
 	"github.com/kanywst/whosent/pkg/diagnose"

@@ -15,7 +15,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kanywst/mandatum/pkg/jose"
+	"github.com/kanywst/whosent/internal/mandatum/jose"
 
 	"github.com/kanywst/whosent/pkg/diagnose"
 )

@@ -100,7 +100,7 @@ A verifier stops at the first failure. `check` evaluates every rule for every li
 | INVALID | 1 | a rule failed, or could not be evaluated, so an enforcement point denies |
 | INCOMPLETE | 2 | nothing failed, but something was not checked (1 with `--strict`) |
 | | 3 | the command line or an input file is wrong |
-| | 70 | whosent and mandatum disagree about the chain; a bug in whosent, please report it |
+| | 70 | whosent's diagnosis and the embedded Mandatum reference verifier disagree about the chain; a bug in whosent, please report it |
 
 ### Asking about one request
 
@@ -131,7 +131,7 @@ The answer says how far it can be relied on: `AUTHORITATIVE` (the chain verified
 The chain is read from a file, or from stdin with `-` or a pipe. The format is recognised by its shape:
 
 - a JSON array of compact JWS strings, sponsor first (the wire form)
-- an MCP `tools/call` request with the chain in `params._meta["io.github.kanywst.mandatum/chain"]`, read exactly as mandatum's MCP middleware reads it
+- an MCP `tools/call` request with the chain in `params._meta["io.github.kanywst.mandatum/chain"]`, read exactly as Mandatum v0.2.0's MCP middleware reads it
 - one serialization per line
 
 Keys come from a trust file or from `--jwks ISSUER=PATH` / `--jwks ISSUER=https://URL`:
@@ -147,7 +147,7 @@ Keys come from a trust file or from `--jwks ISSUER=PATH` / `--jwks ISSUER=https:
 
 ## What it checks
 
-Rules V1 to V9 of the [Delegation Assertion specification](https://github.com/kanywst/mandatum/blob/main/docs/spec/delegation-assertion.md), for every link:
+Rules V1 to V9 of the [Delegation Assertion specification](docs/mandatum-spec.md), for every link:
 
 | Rule | Checks |
 | :--: | :--- |
@@ -164,7 +164,7 @@ Rules V1 to V9 of the [Delegation Assertion specification](https://github.com/ka
 Two rules hold everywhere in the tool:
 
 - **Not checked is never green.** A rule that needs an input you did not give is shown as not checked, with its own glyph and colour. VALID means every rule was checked. `AUTHORITATIVE` means a VALID chain with no missing input.
-- **It agrees with mandatum.** Every diagnosis also runs mandatum's own verifier on the same chain with the same answers. If the two disagree, or the verifier cannot run, mandatum's verdict wins, the screen says so, and the exit code is 70.
+- **It agrees with the reference verifier.** Every diagnosis also runs the Mandatum v0.2.0 reference verifier, embedded unchanged in `internal/mandatum`, on the same chain with the same answers. If the two disagree, or the verifier cannot run, the reference verdict wins, the screen says so, and the exit code is 70.
 
 ## Keybindings
 
@@ -200,7 +200,7 @@ Report a vulnerability through a [private advisory](https://github.com/kanywst/w
 
 ## Related
 
-- [mandatum](https://github.com/kanywst/mandatum) is the specification and the Go library. whosent imports its verifier, its attenuation rules and its matcher rather than reimplementing them, and is pinned to mandatum v0.2.0.
+- [mandatum](https://github.com/kanywst/mandatum) is the specification and its reference Go library, now archived. whosent embeds the v0.2.0 verifier, attenuation rules and matcher in [`internal/mandatum`](internal/mandatum) rather than reimplementing them, and carries a copy of the [specification](docs/mandatum-spec.md).
 - [y509](https://github.com/kanywst/y509) does the same job for X.509 certificate chains.
 
 ## Development

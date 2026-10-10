@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kanywst/mandatum/pkg/mda"
+	"github.com/kanywst/whosent/internal/mandatum/mda"
 )
 
 // ChainMetaKey is the `_meta` key a tools/call request carries its chain
