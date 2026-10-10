@@ -336,6 +336,13 @@ func TestExchangeRules(t *testing.T) {
 		{"a dropped expiry fails", func(_, t1 map[string]any) { delete(t1, "exp") }, RuleExpiry, chain.StatusFail, "removed the expiry"},
 		{"a token expired before the next was issued fails", func(t0, _ map[string]any) { t0["exp"] = now.Add(-20 * time.Minute).Unix() }, RuleTime, chain.StatusFail, "before token 1"},
 		{"no iat on the next token leaves the earlier one's time unknown", func(_, t1 map[string]any) { delete(t1, "iat") }, RuleTime, chain.StatusUnchecked, "no iat"},
+		// No scope claim may mean the resource server's default, which can
+		// be wider than anything the token above held.
+		{"a later token naming no scope cannot be judged", func(_, t1 map[string]any) { delete(t1, "scope") }, RuleScope, chain.StatusUnchecked, "default"},
+		{"scope and scp are read together", func(_, t1 map[string]any) { t1["scope"] = "a"; t1["scp"] = "d" }, RuleScope, chain.StatusFail, "adds d"},
+		{"a may_act that is not an object fails", func(t0, _ map[string]any) { t0["may_act"] = "p" }, RuleMayAct, chain.StatusFail, "not a JSON object"},
+		{"a malformed exp above fails the expiry rule", func(t0, _ map[string]any) { t0["exp"] = "later" }, RuleExpiry, chain.StatusFail, "token 0's exp"},
+		{"a malformed exp here fails the expiry rule", func(_, t1 map[string]any) { t1["exp"] = "later" }, RuleExpiry, chain.StatusFail, "not a NumericDate"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -376,7 +383,15 @@ func TestTimeAndAudience(t *testing.T) {
 		{"within the skew", map[string]any{"sub": "a", "exp": base.Add(10 * time.Second).Unix()}, &api, RuleTime, chain.StatusPass},
 		{"not yet valid", map[string]any{"sub": "a", "nbf": base.Add(time.Hour).Unix()}, &api, RuleTime, chain.StatusFail},
 		{"issued in the future", map[string]any{"sub": "a", "iat": base.Add(time.Hour).Unix()}, &api, RuleTime, chain.StatusFail},
-		{"a non-numeric exp reads as absent", map[string]any{"sub": "a", "exp": "tomorrow"}, &api, RuleTime, chain.StatusPass},
+		// A present exp that is not a NumericDate is not "no exp": strict
+		// libraries refuse the token, so it must not read as never expiring.
+		{"a string exp fails", map[string]any{"sub": "a", "exp": "1600000000"}, &api, RuleTime, chain.StatusFail},
+		{"a boolean exp fails", map[string]any{"sub": "a", "exp": true}, &api, RuleTime, chain.StatusFail},
+		{"an exp past year 9999 fails", map[string]any{"sub": "a", "exp": 1e12}, &api, RuleTime, chain.StatusFail},
+		{"an object exp fails", map[string]any{"sub": "a", "exp": map[string]any{}}, &api, RuleTime, chain.StatusFail},
+		{"a negative exp is a time long past", map[string]any{"sub": "a", "exp": -1}, &api, RuleTime, chain.StatusFail},
+		{"a string nbf fails", map[string]any{"sub": "a", "nbf": "soon"}, &api, RuleTime, chain.StatusFail},
+		{"no exp on a plain JWT passes with a warning", map[string]any{"sub": "a"}, &api, RuleTime, chain.StatusPass},
 		{"an audience among several", map[string]any{"sub": "a", "aud": []any{"x", "https://api"}}, &api, RuleAudience, chain.StatusPass},
 		{"the wrong audience", map[string]any{"sub": "a", "aud": "https://other"}, &api, RuleAudience, chain.StatusFail},
 		{"no audience in the token", map[string]any{"sub": "a"}, &api, RuleAudience, chain.StatusFail},
@@ -387,6 +402,28 @@ func TestTimeAndAudience(t *testing.T) {
 			c := mk(tt.claims, tt.aud)
 			if got := c.Leaf().Check(tt.rule); got.Status != tt.status {
 				t.Errorf("%s %q, want %s", got.Status, got.Detail, tt.status)
+			}
+		})
+	}
+}
+
+// RFC 9068 access tokens, ID-JAGs and Txn-Tokens require exp; a plain JWT
+// may omit it (RFC 7519), which passes with a warning.
+func TestProfilesThatRequireExp(t *testing.T) {
+	for _, tt := range []struct {
+		typ  string
+		want chain.Status
+	}{
+		{"at+jwt", chain.StatusFail},
+		{"oauth-id-jag+jwt", chain.StatusFail},
+		{"txntoken+jwt", chain.StatusFail},
+		{"JWT", chain.StatusPass},
+	} {
+		t.Run(tt.typ, func(t *testing.T) {
+			p, _ := json.Marshal(map[string]any{"sub": "a", "aud": "x", "act": map[string]any{"sub": "agent"}, "req_wl": "w", "txn": "t", "scope": "s"})
+			c := newSession([]string{compact(`{"alg":"EdDSA","typ":"`+tt.typ+`"}`, string(p), "c2ln")}, nil, nil, nil).evaluate(base)
+			if got := c.Leaf().Check(RuleTime); got.Status != tt.want {
+				t.Errorf("%s %q, want %s", got.Status, got.Detail, tt.want)
 			}
 		})
 	}

@@ -272,6 +272,11 @@ func (s *session) timeCheck(k int, at time.Time) (chain.Status, string, string) 
 		}
 		ref, when = *next.Iat, fmt.Sprintf("when token %d was issued", k+1)
 	}
+	for _, claim := range []string{"exp", "nbf", "iat"} {
+		if p, bad := t.DateProblems[claim]; bad {
+			return chain.StatusFail, claim + " " + p + ": a strict library refuses the token", ""
+		}
+	}
 	if t.Iat != nil && ref.Add(s.skew).Before(*t.Iat) {
 		return chain.StatusFail, fmt.Sprintf("issued at %s, which is after %s", stamp(*t.Iat), when), ""
 	}
@@ -279,6 +284,9 @@ func (s *session) timeCheck(k int, at time.Time) (chain.Status, string, string) 
 		return chain.StatusFail, fmt.Sprintf("not valid before %s, which is after %s", stamp(*t.Nbf), when), ""
 	}
 	if t.Exp == nil {
+		if profile := expRequiredBy(t); profile != "" {
+			return chain.StatusFail, "no exp, which " + profile + " requires", ""
+		}
 		return chain.StatusPass, "no exp", "the token has no exp: it never expires, which an enforcement point should refuse"
 	}
 	if !ref.Add(-s.skew).Before(*t.Exp) {
@@ -291,6 +299,20 @@ func (s *session) timeCheck(k int, at time.Time) (chain.Status, string, string) 
 		return chain.StatusPass, fmt.Sprintf("valid until %s", stamp(*t.Exp)), ""
 	}
 	return chain.StatusPass, fmt.Sprintf("still valid %s", when), ""
+}
+
+// expRequiredBy names the profile that makes exp mandatory for this
+// token, or "" when exp is optional (RFC 7519 leaves it so).
+func expRequiredBy(t *token) string {
+	switch normType(t.Typ) {
+	case typAccess:
+		return "an RFC 9068 access token (at+jwt)"
+	case typIDJAG:
+		return "an ID-JAG"
+	case typTxnToken:
+		return "a Txn-Token"
+	}
+	return ""
 }
 
 func (s *session) audienceCheck(k int) (chain.Status, string) {
@@ -346,6 +368,9 @@ func (s *session) mayActCheck(k int) (chain.Status, string) {
 		return chain.StatusNotApplicable, "no token before this one names who may act"
 	}
 	prev := s.tokens[k-1]
+	if prev.Problem == "" && prev.MayActProblem != "" {
+		return chain.StatusFail, fmt.Sprintf("token %d's %s, so who may act for its subject cannot be read", k-1, prev.MayActProblem)
+	}
 	if prev.Problem != "" || prev.MayAct == nil {
 		return chain.StatusNotApplicable, fmt.Sprintf("token %d names no may_act", k-1)
 	}
@@ -386,7 +411,9 @@ func (s *session) hopRule(rule string, k int) (chain.Status, string) {
 		case prev.ScopeClaim == "":
 			return chain.StatusUnchecked, fmt.Sprintf("token %d names no scope, so whether this one narrowed it cannot be judged", k-1)
 		case t.ScopeClaim == "":
-			return chain.StatusPass, "names no scope"
+			// No scope claim can mean "the resource server's default",
+			// which may be wider than anything token k-1 named.
+			return chain.StatusUnchecked, fmt.Sprintf("names no scope, which a resource server may read as its default; whether that is within token %d's cannot be judged", k-1)
 		}
 		var wider []string
 		for _, sc := range t.Scopes {
@@ -405,6 +432,10 @@ func (s *session) hopRule(rule string, k int) (chain.Status, string) {
 		return chain.StatusPass, "same subject"
 	case RuleExpiry:
 		switch {
+		case prev.DateProblems["exp"] != "":
+			return chain.StatusFail, fmt.Sprintf("token %d's exp %s, so whether this one expires no later cannot hold", k-1, prev.DateProblems["exp"])
+		case t.DateProblems["exp"] != "":
+			return chain.StatusFail, "exp " + t.DateProblems["exp"]
 		case prev.Exp == nil:
 			return chain.StatusPass, fmt.Sprintf("token %d never expires", k-1)
 		case t.Exp == nil:
@@ -594,6 +625,14 @@ func (s *session) tokenSections(t *token, p plan) []chain.Section {
 	add("audience", strings.Join(t.Aud, ", "), chain.ToneText)
 	if t.ScopeClaim != "" {
 		add(t.ScopeClaim, strings.Join(t.Scopes, " "), chain.ToneText)
+		if t.ScopeNote != "" {
+			add("", t.ScopeNote, chain.ToneWarn)
+		}
+	}
+	for _, claim := range []string{"exp", "nbf", "iat"} {
+		if p, bad := t.DateProblems[claim]; bad {
+			add(claim, p, chain.ToneBad)
+		}
 	}
 	if t.Iat != nil {
 		add("issued", stamp(*t.Iat), chain.ToneMuted)

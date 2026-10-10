@@ -99,13 +99,20 @@ type token struct {
 	ClientID      string
 	Aud           []string
 	Exp, Nbf, Iat *time.Time
-	JTI           string
+	// DateProblems names each of exp, nbf and iat that is present but not
+	// an RFC 7519 NumericDate, with what is wrong. Such a claim is not
+	// absent: a strict library refuses the token, so the time rule fails.
+	DateProblems map[string]string
+	JTI          string
 
 	// Scopes are the token's scopes in the order it lists them, and
 	// ScopeClaim names the claim they came from ("scope" or "scp"), or ""
 	// when it has none.
 	Scopes     []string
 	ScopeClaim string
+	// ScopeNote says how scopes were read when that is not obvious: a
+	// token carrying both scope and scp.
+	ScopeNote string
 
 	// Actors is the `act` chain, oldest first: the deepest nested `act` is
 	// the first actor, the outermost one the current actor. ActProblem is
@@ -113,6 +120,8 @@ type token struct {
 	Actors     []actor
 	ActProblem string
 	MayAct     *actor
+	// MayActProblem is set when may_act is present but not an object.
+	MayActProblem string
 
 	Entra *entra
 	// Kind names the profile the token follows, for the report.
@@ -273,14 +282,33 @@ func parse(raw string) *token {
 	t.ClientID = str(t.Claims, "client_id")
 	t.JTI = str(t.Claims, "jti")
 	t.Aud = strs(t.Claims["aud"])
-	t.Exp = numericDate(t.Claims["exp"])
-	t.Nbf = numericDate(t.Claims["nbf"])
-	t.Iat = numericDate(t.Claims["iat"])
+	for _, d := range []struct {
+		claim string
+		into  **time.Time
+	}{{"exp", &t.Exp}, {"nbf", &t.Nbf}, {"iat", &t.Iat}} {
+		v, present := t.Claims[d.claim]
+		if !present {
+			continue
+		}
+		when, problem := numericDate(v)
+		if problem != "" {
+			if t.DateProblems == nil {
+				t.DateProblems = map[string]string{}
+			}
+			t.DateProblems[d.claim] = problem
+			continue
+		}
+		*d.into = when
+	}
 	t.readScopes()
 	t.readActors()
-	if m, ok := t.Claims["may_act"].(map[string]any); ok {
-		a := actorFrom(m)
-		t.MayAct = &a
+	if v, present := t.Claims["may_act"]; present {
+		if m, ok := v.(map[string]any); ok {
+			a := actorFrom(m)
+			t.MayAct = &a
+		} else {
+			t.MayActProblem = "may_act is not a JSON object"
+		}
 	}
 	t.readEntra()
 	t.Kind = t.kind()
@@ -324,16 +352,22 @@ func normType(typ string) string {
 	return strings.TrimPrefix(typ, "application/")
 }
 
+// readScopes reads scope (RFC 8693, RFC 9068) and scp (Microsoft Entra,
+// and some other issuers). A token can carry both, and which one a
+// resource server reads is its own choice, so whosent holds the union:
+// the most any resource server reading either claim could grant. That is
+// the reading under which a widening cannot hide, and it is said.
 func (t *token) readScopes() {
+	var claims []string
 	for _, claim := range []string{"scope", "scp"} {
 		v, ok := t.Claims[claim]
 		if !ok {
 			continue
 		}
-		t.ScopeClaim = claim
+		claims = append(claims, claim)
 		switch x := v.(type) {
 		case string:
-			t.Scopes = strings.Fields(x)
+			t.Scopes = append(t.Scopes, strings.Fields(x)...)
 		case []any:
 			for _, e := range x {
 				if s, ok := e.(string); ok {
@@ -341,8 +375,14 @@ func (t *token) readScopes() {
 				}
 			}
 		}
-		t.Scopes = dedupe(t.Scopes)
+	}
+	if len(claims) == 0 {
 		return
+	}
+	t.ScopeClaim = strings.Join(claims, "+")
+	t.Scopes = dedupe(t.Scopes)
+	if len(claims) > 1 {
+		t.ScopeNote = "the token carries both scope and scp; whosent holds their union, the most a resource server reading either could grant"
 	}
 }
 
@@ -483,20 +523,47 @@ func strs(v any) []string {
 	return nil
 }
 
-// numericDate reads an RFC 7519 NumericDate. Anything that is not a finite
-// number reads as absent, and the time rule says so.
-func numericDate(v any) *time.Time {
+// maxNumericDate is the end of year 9999, the last instant a date can be
+// written in. A later value is not a time anything could mean.
+const maxNumericDate = 253402300799
+
+// numericDate reads an RFC 7519 NumericDate, a JSON number of seconds. A
+// present claim that is not one (a string, a boolean, an object, a value
+// past year 9999) is reported as a problem rather than read as absent:
+// reading "exp": "1600000000" as "never expires" would call a token VALID
+// that every strict library refuses. A negative number is a real time,
+// before 1970, and is read as one.
+func numericDate(v any) (*time.Time, string) {
 	n, ok := v.(json.Number)
 	if !ok {
-		return nil
+		return nil, fmt.Sprintf("is %s, not a NumericDate (a JSON number of seconds)", jsonKind(v))
 	}
 	f, err := n.Float64()
-	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < 0 || f > 1e11 {
-		return nil
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+		return nil, "is not a finite number"
+	}
+	if math.Abs(f) > maxNumericDate {
+		return nil, fmt.Sprintf("is %s, beyond the year 9999", n.String())
 	}
 	sec, frac := math.Modf(f)
 	t := time.Unix(int64(sec), int64(frac*1e9)).UTC()
-	return &t
+	return &t, ""
+}
+
+func jsonKind(v any) string {
+	switch v.(type) {
+	case nil:
+		return "null"
+	case string:
+		return "a string"
+	case bool:
+		return "a boolean"
+	case map[string]any:
+		return "an object"
+	case []any:
+		return "an array"
+	}
+	return "not a number"
 }
 
 func dedupe(in []string) []string {
