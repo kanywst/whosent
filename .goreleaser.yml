@@ -1,0 +1,158 @@
+version: 2
+
+project_name: whosent
+
+before:
+  hooks:
+    # A release whose go.sum disagrees with its go.mod builds something other
+    # than what was reviewed. Fail here rather than ship it.
+    - go mod verify
+
+builds:
+  - binary: whosent
+    main: ./cmd/whosent
+    # Static link so the binary runs on any libc. whosent only touches the
+    # network to fetch key documents you configured, through net/http's
+    # pure-Go resolver.
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/kanywst/whosent/internal/version.Version={{.Version}} -X github.com/kanywst/whosent/internal/version.GitCommit={{.Commit}} -X github.com/kanywst/whosent/internal/version.BuildDate={{.Date}}
+
+archives:
+  - formats:
+      - tar.gz
+    # Windows has no tar in the box before Windows 10 1803, and every Windows
+    # packaging tool (Scoop, WinGet) expects a zip.
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - man/man1/*
+      - completions/*
+
+release:
+  # Named rather than inferred from the git remote, so a fork's tag cannot
+  # publish under this name and a checkout with no remote still validates.
+  github:
+    owner: kanywst
+    name: whosent
+  prerelease: auto
+  # Lets a partially-failed release be re-run. Without this, re-uploading an
+  # asset that is already on the release fails with a 422 and goreleaser aborts
+  # before it gets to the Homebrew step.
+  replace_existing_artifacts: true
+
+checksum:
+  name_template: "{{ .ProjectName }}-{{ .Version }}-checksums.txt"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^chore\\(demo\\):"
+      - "^chore\\(deps\\):"
+      - "^Merge pull request"
+  groups:
+    - title: Features
+      regexp: '^feat(\(.+\))?!?:'
+      order: 0
+    - title: Fixes
+      regexp: '^fix(\(.+\))?!?:'
+      order: 1
+    - title: Security
+      regexp: '^sec(urity)?(\(.+\))?!?:'
+      order: 2
+    - title: Documentation
+      regexp: '^docs(\(.+\))?!?:'
+      order: 3
+    - title: Other
+      order: 999
+
+homebrew_casks:
+  - name: whosent
+    binaries:
+      - whosent
+    # Casks are fetched with curl, so Homebrew tags the payload with
+    # com.apple.quarantine and Gatekeeper refuses to run an unsigned binary.
+    # Stripping it is the path goreleaser documents, but its `hooks:` option
+    # emits the legacy Ruby `postflight do` block, which Homebrew deprecated
+    # (it warns on every `brew` invocation). `custom_block` is the only way to
+    # emit the declarative replacement, `postflight_steps`, from here.
+    # The braces are escaped because goreleaser templates this value and
+    # {{staged_path}} is a Homebrew install-time token, not a Go template field.
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ "{{" }}staged_path{{ "}}" }}/whosent"]
+        end
+      end
+    manpages:
+      - man/man1/whosent.1
+    completions:
+      bash: completions/whosent.bash
+      zsh: completions/whosent.zsh
+      fish: completions/whosent.fish
+    homepage: "https://github.com/kanywst/whosent"
+    description: "Delegation chain TUI: who sent this agent, and what may it still do"
+    repository:
+      owner: kanywst
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    commit_msg_template: "chore(cask): {{ .ProjectName }} {{ .Tag }}"
+
+# SBOM generation (CycloneDX via syft)
+sboms:
+  - artifacts: archive
+
+# Keyless signing of checksums via Sigstore cosign + GitHub OIDC.
+# cosign 3.x removed --output-certificate and --output-signature outright and
+# writes a Sigstore bundle instead, so the signature and the certificate ship
+# together in one .sigstore.json rather than a separate .sig + .pem pair.
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - "sign-blob"
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+    output: true
+
+nfpms:
+  - maintainer: kanywst
+    description: "Delegation chain TUI: who sent this agent, and what may it still do"
+    homepage: https://github.com/kanywst/whosent
+    license: Apache-2.0
+    formats:
+      - deb
+      - rpm
+    contents:
+      - src: completions/whosent.bash
+        dst: /usr/share/bash-completion/completions/whosent
+      - src: completions/whosent.zsh
+        dst: /usr/share/zsh/site-functions/_whosent
+      - src: completions/whosent.fish
+        dst: /usr/share/fish/vendor_completions.d/whosent.fish
+      - src: man/man1/whosent.1
+        dst: /usr/share/man/man1/whosent.1

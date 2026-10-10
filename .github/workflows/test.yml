@@ -1,0 +1,78 @@
+name: Test
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - 'demo.gif'
+      - 'README.md'
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  # Lint, vulncheck and the coverage gate do not depend on the OS, so they run
+  # once rather than three times.
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Go
+      uses: actions/setup-go@v7
+      with:
+        go-version-file: go.mod
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Verify modules
+      run: go mod verify
+
+    - name: Lint
+      run: make lint
+
+    - name: Vulnerability check
+      run: make vulncheck
+
+    - name: Run tests
+      run: make test-json > test-report.json
+
+    - name: Coverage threshold
+      run: make test-coverage
+
+    - name: Annotate tests
+      if: always()
+      uses: guyarb/golang-test-annotations@v0.9.0
+      with:
+        test-results: test-report.json
+
+  # The race detector matters here: the TUI re-runs the engine from the update
+  # loop when the clock is scrubbed or a revocation is simulated. Windows is
+  # tested without -race, which needs cgo, but still runs: the terminal-width
+  # and glyph tests are where a platform difference would show.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Go
+      uses: actions/setup-go@v7
+      with:
+        go-version-file: go.mod
+
+    - name: Test with the race detector
+      if: runner.os != 'Windows'
+      run: go test -race ./...
+
+    - name: Test
+      if: runner.os == 'Windows'
+      run: go test ./...

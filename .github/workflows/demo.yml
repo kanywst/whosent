@@ -1,0 +1,86 @@
+name: Demo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'demo.tape'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'pkg/**'
+      - '.github/workflows/demo.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: demo-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install ttyd
+        run: |
+          curl -L -o /tmp/ttyd https://github.com/tsl0922/ttyd/releases/latest/download/ttyd.x86_64
+          chmod +x /tmp/ttyd
+          sudo mv /tmp/ttyd /usr/local/bin/ttyd
+
+      # The tape sets a Nerd Font for the rail glyphs. Without one installed the
+      # recording falls back to a font with different widths and the rail
+      # misaligns in the gif, though not in a real terminal.
+      - name: Install the font
+        run: |
+          mkdir -p ~/.local/share/fonts
+          curl -fsSL -o /tmp/Hack.zip https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Hack.zip
+          unzip -o -q /tmp/Hack.zip -d ~/.local/share/fonts/Hack
+          fc-cache -f
+
+      - name: Install vhs
+        # Held at v0.11.0, as y509 is: v0.12.0 plays the whole tape, prints
+        # "Creating demo.gif..." and exits 0 without writing the file.
+        #
+        # GOTOOLCHAIN is scoped to this step because vhs can require a newer Go
+        # than whosent's own floor, and setup-go otherwise pins it to the go.mod
+        # version for the whole job.
+        env:
+          GOTOOLCHAIN: auto
+        run: go install github.com/charmbracelet/vhs@v0.11.0
+
+      - name: Render demo.gif
+        # vhs can print "Creating demo.gif..." and exit 0 having written
+        # nothing. Remove the file first and inspect what comes back, rather
+        # than comparing timestamps: a half-encoded file has a fresh mtime too.
+        run: |
+          rm -f demo.gif
+          vhs demo.tape
+          if [ ! -s demo.gif ] ||
+             [ "$(head -c 4 demo.gif)" != "GIF8" ] ||
+             [ "$(tail -c 1 demo.gif)" != ";" ]; then
+            echo "::error::vhs did not write a usable demo.gif"
+            exit 1
+          fi
+
+      - name: Commit and push if demo.gif changed
+        run: |
+          if git diff --quiet -- demo.gif; then
+            echo "demo.gif unchanged, nothing to commit"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add demo.gif
+          git commit -m "chore(demo): refresh demo.gif"
+          git push

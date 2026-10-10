@@ -1,0 +1,59 @@
+name: Bug report
+description: Something whosent got wrong
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        For a suspected vulnerability, do not use this form. Open a
+        [private advisory](https://github.com/kanywst/whosent/security/advisories/new)
+        instead. That includes any case where whosent reports a chain as VALID,
+        or a request as PERMITTED, that mandatum's verifier would deny.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: The command
+      description: The exact command line, and its output. `whosent check --json` output is the most useful form.
+      render: text
+      placeholder: |
+        $ whosent check chain.json --trust trust.json --audience https://mcp.example.org
+        ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: chain
+    attributes:
+      label: The chain
+      description: >-
+        The chain that triggers it, which is worth more than a description of
+        it. A delegation chain names people and agents and may still be live,
+        so if you would rather not paste it, try to reproduce the shape with
+        `whosent demo --emit DIR <scenario>` and say how yours differs.
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `whosent version`.
+      placeholder: "whosent v0.1.0, mandatum v0.2.0"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: OS and terminal
+      placeholder: "macOS 26.0, Ghostty 1.2"
+    validations:
+      required: true

@@ -1,0 +1,350 @@
+.TH WHOSENT 1 "2026-10-10" "whosent manual" "User Commands"
+.SH NAME
+whosent \- see who sent an agent, and what a delegation chain still lets it do
+.SH SYNOPSIS
+.B whosent
+[\fIOPTIONS\fR] [\fIFILE\fR | \fB\-\fR]
+.br
+.B whosent check
+[\fIOPTIONS\fR] [\fB\-\-json\fR] [\fB\-\-strict\fR] [\fIFILE\fR | \fB\-\fR]
+.br
+.B whosent ask
+[\fIOPTIONS\fR] [\fIREQUEST OPTIONS\fR] [\fIFILE\fR | \fB\-\fR]
+.br
+.B whosent demo
+[\fB\-\-fixed\fR] [\fB\-\-list\fR] [\fB\-\-emit\fR \fIDIR\fR [\fB\-\-force\fR]] [\fISCENARIO\fR]
+.br
+.B whosent completion
+\fISHELL\fR
+.br
+.B whosent version
+.SH DESCRIPTION
+.B whosent
+opens a Mandatum delegation chain in a terminal UI: a series of signed
+assertions running from an authenticated human sponsor down to the agent that
+is acting. It shows the human the chain is rooted in, how authority narrows at
+every hop, and where trust breaks.
+.PP
+Every verification rule of the Mandatum specification, V1 to V9, is evaluated
+for every link. Unlike a verifier, which stops at the first failure, whosent
+reports all of them, and draws everything below the first broken link as
+unreached: no authority reaches it.
+.PP
+A rule that needs an input you did not give is reported as
+.IR "not checked" ,
+never as passing. Signatures need keys (\fB\-\-trust\fR or \fB\-\-jwks\fR),
+revocation needs a published set (\fB\-\-revocations\fR), and the audience rule
+needs the resource server's identifier (\fB\-\-audience\fR). A chain is only
+reported
+.B VALID
+when every rule was checked for every link and held.
+.PP
+On every run, whosent also hands the same chain and the same answers to
+mandatum's own verifier. If the two disagree, mandatum's verdict wins, the
+disagreement is shown as an internal inconsistency, and the exit status is 70.
+.SH INPUT
+The chain is read from \fIFILE\fR, or from standard input when \fIFILE\fR is
+\fB\-\fR or standard input is a pipe. The format is recognised by its shape:
+.TP
+.B JSON array of strings
+The wire form: compact JWS serializations, sponsor first.
+.TP
+.B MCP tools/call request
+A JSON-RPC request whose \fBparams._meta\fR carries the chain under
+\fBio.github.kanywst.mandatum/chain\fR, read exactly as mandatum's MCP
+middleware reads it. The tool name and arguments are captured for \fBask\fR.
+Bare params, a bare \fB_meta\fR, and \fB{"chain": [...]}\fR are accepted too.
+.TP
+.B One serialization per line
+Blank lines and lines starting with \fB#\fR are skipped.
+.PP
+Bytes inside a serialization are never altered, since a link commits to its
+parent by a digest over the parent's exact bytes. Input is limited to 1 MiB and
+64 links.
+.SH COMMANDS
+.TP
+.B check
+Evaluate every rule for every link and print a report: the verdict, a rule grid
+per link, every finding, and how authority narrows at each hop. With
+\fB\-\-json\fR the report is printed as JSON (schema
+.BR whosent.report/v1 )
+and nothing else reaches standard output.
+.TP
+.B ask
+Check a request against the chain with mandatum's own matcher, at every link,
+so you can see where authority for it ends, or where it appears from nowhere.
+The answer is labelled
+.B AUTHORITATIVE
+(the chain verified with every input supplied),
+.B CONDITIONAL
+(nothing failed, but some rules were not checked) or
+.B HYPOTHETICAL
+(the chain does not verify, so it permits nothing; this is what the leaf
+claims). With \fB\-\-json\fR the answer is printed as schema
+.BR whosent.ask/v1 .
+.TP
+.B demo
+Mint example chains with throwaway keys and open them in the interactive view.
+With no \fISCENARIO\fR it tours them all. Each scenario brings its own keys,
+revocation set and audience, so the input options do not apply. With
+\fB\-\-emit\fR \fIDIR\fR it writes one scenario's files instead:
+.IR chain.json ,
+.IR jwks/ ,
+.IR trust.json ,
+.IR revocation.json ,
+.I revoked\-jtis.txt
+and a
+.I manifest.json
+holding the exact
+.B whosent check
+command and what it must report. Files are written 0600 through a temporary
+file and a rename, so a planted symbolic link is replaced rather than written
+through; a directory that is not empty is refused without \fB\-\-force\fR.
+Scenarios: healthy, widened, revoked, expired, spliced, custody, audience,
+retarget, forged, multifault, unchecked.
+.TP
+.B completion
+Print a completion script for \fBbash\fR, \fBzsh\fR, \fBfish\fR or
+\fBpowershell\fR.
+.TP
+.B version
+Print whosent's version and the mandatum version it was built against.
+.SH OPTIONS
+.TP
+.BI \-\-trust " FILE"
+A trust file mapping issuers to their key documents:
+.B {"issuers": {"ISSUER": {"jwks_file": "PATH"} | {"jwks_url": "https://..."}}}.
+A relative \fBjwks_file\fR is resolved against the trust file's directory.
+.TP
+.BI \-\-jwks " ISSUER=PATH|ISSUER=https://URL"
+One issuer's keys. Repeatable. Keys are read the way mandatum's JWKS resolver
+reads them: Ed25519 only, and a document it would refuse is refused here.
+URLs must be https, including after any redirect; a fetch is capped at 1 MiB
+and 5 seconds. Issuers come only from these options, never from the chain, so
+a chain cannot make whosent fetch anything.
+.TP
+.BI \-\-revocations " FILE"
+A published compact revocation set (specification section 7.1).
+.TP
+.BI \-\-revoked\-jtis " FILE"
+An exact list of revoked jtis, one per line, used to resolve a hit in the
+revocation set's filter. Without it, a hit denies, as the specification says.
+.TP
+.BI \-\-max\-age " DURATION"
+The oldest revocation set accepted; \fB0\fR accepts any age. Default 24h. A
+stale set makes revocation unknown, which denies.
+.TP
+.BI \-\-audience " AUDIENCE"
+The resource server the chain is presented to; checks rule V9. An empty value
+is an error.
+.TP
+.BI \-\-at " TIME"
+Evaluate at this time instead of now: RFC 3339, unix seconds, \fBnow\fR, or a
+relative offset such as \fB+25m\fR or \fB\-1h\fR. The revocation set's age is
+measured against this time too.
+.TP
+.BI \-\-skew " DURATION"
+Clock skew tolerance, at most 5m. Default 30s.
+.TP
+.B \-\-reverse
+The chain was handed over leaf first; reverse it before checking. Without this,
+a chain that looks reversed is reported, never silently reordered.
+.TP
+.B \-\-no\-motion
+No animation in the interactive view.
+.TP
+.B \-\-ascii
+ASCII glyphs only. Also set by \fBWHOSENT_ASCII=1\fR.
+.SH CHECK OPTIONS
+.TP
+.B \-\-json
+Print the report as JSON (schema \fBwhosent.report/v1\fR).
+.TP
+.B \-\-strict
+Treat INCOMPLETE as a failure (exit 1).
+.SH ASK OPTIONS
+.TP
+.BI \-\-resource\-type " TYPE"
+The resource's type. Default \fBmcp_tool\fR.
+.TP
+.BI \-\-resource\-id " ID"
+The resource, such as a tool name. Defaults to the tool a tools/call request
+names.
+.TP
+.BI \-\-action " NAME"
+The action attempted. Default \fBinvoke\fR.
+.TP
+.BI \-\-tag " TAG"
+A tag the deployment attaches to the resource. Repeatable.
+.TP
+.BI \-\-attr " KEY=VALUE"
+An attribute conditions are evaluated against. \fIVALUE\fR is read as JSON when
+it parses, so \fBargs.n=3\fR is a number. Repeatable.
+.TP
+.B \-\-attr\-from\-args
+Map a tools/call request's arguments to \fBargs.\fR\fIname\fR attributes. This
+mapping is whosent's assumption, not something mandatum's enforcement point
+does, and a warning says so.
+.TP
+.BI \-\-request " FILE"
+Read the request from a JSON file instead.
+.TP
+.B \-\-json
+Print the answer as JSON (schema \fBwhosent.ask/v1\fR).
+.TP
+.B \-\-strict
+Treat a CONDITIONAL answer as not permitted.
+.SH RULES
+.TP
+.B V1
+Structure: the link parses, is well formed, commits to its parent's digest, and
+its depth follows the parent's.
+.TP
+.B V2
+Custody: each link is issued by the subject of the link above it.
+.TP
+.B V3
+Signature: the issuer signed these exact bytes, with a key you supplied.
+.TP
+.B V4
+Time: not issued in the future and not expired, within the skew.
+.TP
+.B V5
+Attenuation: authority only narrows. Capabilities, expiry, delegation depth,
+sequence constraints and audience are no wider than the parent's.
+.TP
+.B V6
+Sponsor: every link names the same human, authenticated the same way.
+.TP
+.B V7
+Depth: the chain is no deeper than the sponsor allowed.
+.TP
+.B V8
+Revocation: no link is revoked. Revoking a link revokes everything below it.
+.TP
+.B V9
+Audience: the leaf is addressed to this resource server.
+.SH EXIT STATUS
+.B check
+exits:
+.TP
+.B 0
+VALID: every rule was checked for every link, and holds.
+.TP
+.B 1
+INVALID: a rule failed, or could not be evaluated (an enforcement point denies).
+.TP
+.B 2
+INCOMPLETE: nothing failed, but something was not checked. 1 with
+\fB\-\-strict\fR.
+.TP
+.B 3
+The command line or an input file is wrong.
+.TP
+.B 70
+whosent and mandatum disagree about the chain. This is a bug in whosent;
+please report it.
+.PP
+.B ask
+exits 0 when the request is permitted by a VALID chain, 1 when it is not
+(including any request against an INVALID chain), 2 when it is permitted
+conditionally on rules that were not checked (1 with \fB\-\-strict\fR), and 3
+and 70 as above. The exit status is unchanged by \fB\-\-json\fR.
+.SH KEY BINDINGS
+.TP
+.B \(<-/h, \(->/l
+Select a link (an arrow on the rail).
+.TP
+.B \(ua/k, \(da/j
+Select a row of authority.
+.TP
+.BR J ", " K ", " pgup ", " pgdn
+Scroll the link panel.
+.TP
+.B tab
+Switch panel, when they do not fit side by side.
+.TP
+.B r
+The raw assertion: header, claims and digests. A parent digest takes the colour
+of the link it matches, so a spliced link is the one whose colour matches
+nothing.
+.TP
+.B space
+Replay authority flowing down the chain.
+.TP
+.B t
+Time mode: a timeline of every link, and \(<- \(-> move the clock. The engine is
+re-run at each step.
+.TP
+.BR [ ", " ] ", " shift+\(<- ", " shift+\(->
+Move the clock in big steps.
+.TP
+.B 0
+Back to the time the chain was opened at.
+.TP
+.B x
+Simulate revoking the selected link; again to undo. Nothing is revoked.
+.TP
+.B X
+Clear every simulated revocation.
+.TP
+.B a
+Ask whether the chain would permit a request.
+.TP
+.BR n ", " p
+Next or previous scenario, in the demo tour.
+.TP
+.B ?
+Show the full key binding help.
+.TP
+.BR q ", " esc
+Quit, or go back.
+.SH ENVIRONMENT
+.TP
+.B NO_COLOR
+When set to anything, draw without colour. Every state also has its own glyph,
+so nothing is lost.
+.TP
+.B WHOSENT_ASCII
+When set to 1, use ASCII glyphs only, as \fB\-\-ascii\fR does.
+.SH SECURITY
+Every string taken from a chain, a key document or a library error is escaped
+before it reaches the terminal: control characters, escape sequences and bidi
+overrides are shown as visible escapes, so a chain cannot rewrite the screen,
+write the clipboard or disguise a name. \fB\-\-json\fR output is escaped the
+same way.
+.PP
+whosent touches the network only to fetch key documents from the https URLs
+you configure.
+.SH EXAMPLES
+.TP
+Take the tour:
+.B whosent demo
+.TP
+Write a scenario out and check it the way a script would:
+.B whosent demo \-\-emit fixture widened && cd fixture && whosent check chain.json \-\-trust trust.json \-\-revocations revocation.json \-\-audience https://mcp.example.org \-\-at 2026\-09\-12T08:01:00Z
+.TP
+Open a chain against your own keys:
+.B whosent chain.json \-\-trust trust.json \-\-revocations revocation.json \-\-audience https://mcp.example.org
+.TP
+Gate CI on a chain that fully verifies:
+.B whosent check chain.json \-\-trust trust.json \-\-revocations revocation.json \-\-audience https://mcp.example.org
+.TP
+Ask whether the leaf may fetch a page:
+.B whosent ask chain.json \-\-resource\-id web.fetch \-\-tag external\-content \-\-attr args.host=docs.example.org
+.TP
+Read the chain straight out of an MCP request:
+.B whosent ask call.json \-\-attr\-from\-args
+.SH AUTHOR
+Written by kanywst.
+.SH REPORTING BUGS
+Report bugs at https://github.com/kanywst/whosent/issues.
+.PP
+Report suspected vulnerabilities privately through GitHub Security Advisories
+rather than a public issue. See the security policy at
+https://github.com/kanywst/whosent/security/policy.
+.SH SEE ALSO
+The Mandatum Delegation Assertion specification:
+https://github.com/kanywst/mandatum/blob/main/docs/spec/delegation\-assertion.md
+.SH COPYRIGHT
+Copyright \(co 2026 whosent. Licensed under the Apache License, Version 2.0.

@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags:
+      # Only real version tags. A loose 'v*' also matches a moving major tag
+      # such as 'v1', and goreleaser would then run a second time against the
+      # same commit and replace the artifacts, and the cosign-signed checksums
+      # with them, of the release it had just published.
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+
+permissions:
+  contents: write
+  # Required for cosign keyless signing via GitHub OIDC
+  id-token: write
+  # Required for actions/attest-build-provenance to record SLSA provenance
+  attestations: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # A release is the one build nobody reviews afterwards, so it runs the
+      # tests itself rather than trusting that main was green.
+      - name: Test
+        run: go test -race ./...
+
+      - name: Install syft (SBOM generator)
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Install cosign (keyless signing)
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+
+      # SLSA build provenance for the release archives and packages.
+      # Verify with: gh attestation verify <artifact> -R kanywst/whosent
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.deb
+            dist/*.rpm

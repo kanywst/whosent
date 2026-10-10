@@ -1,0 +1,55 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      # mandatum is pre-1.0 and any minor release may change its API or its
+      # verdicts, so it never rides along in a group: each bump arrives on its
+      # own and the guard's tests say whether whosent still agrees with it.
+      charm:
+        patterns:
+          - "charm.land/*"
+          - "github.com/charmbracelet/*"
+        update-types:
+          - minor
+          - patch
+      golangci-lint:
+        patterns:
+          - "github.com/golangci/*"
+        update-types:
+          - minor
+          - patch
+      go-minor-patch:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "github.com/kanywst/mandatum"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      actions-minor-patch:
+        update-types:
+          - minor
+          - patch
