@@ -6,6 +6,7 @@ require (
 	charm.land/bubbletea/v2 v2.0.10
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/charmbracelet/x/ansi v0.11.8
+	github.com/go-jose/go-jose/v4 v4.1.5
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/term v0.46.0
 )
