@@ -281,7 +281,10 @@ func (m Model) nodeAcross(j, cw int, fs flowState) [4]string {
 	if k == lookDead {
 		barStyle = t.slate
 	}
-	if l.Readable && !l.ExpiresAt.IsZero() {
+	// The life bar needs both ends of a lifetime. A link whose format
+	// records only an expiry shows its time left as text, above, and no
+	// bar that would have to invent a start.
+	if l.Readable && !l.ExpiresAt.IsZero() && !l.IssuedAt.IsZero() {
 		out[3] = m.fit(m.bar(lifeFraction(l), min(cw, 10), barStyle), cw)
 	} else {
 		out[3] = m.fit("", cw)

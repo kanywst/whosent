@@ -5,10 +5,12 @@ go 1.27.2
 require (
 	charm.land/bubbletea/v2 v2.0.10
 	charm.land/lipgloss/v2 v2.0.6
+	filippo.io/edwards25519 v1.2.0
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/go-jose/go-jose/v4 v4.1.5
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/term v0.46.0
+	google.golang.org/protobuf v1.36.12
 )
 
 require (
@@ -215,7 +217,6 @@ require (
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/tools v0.50.0 // indirect
 	golang.org/x/vuln v1.1.4 // indirect
-	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

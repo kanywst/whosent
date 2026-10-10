@@ -43,8 +43,15 @@ Scenarios: ` + fmt.Sprint(names()),
 		},
 		RunE: func(_ *cobra.Command, args []string) error {
 			if list {
+				// The columns are as wide as the longest name, so a format
+				// with long scenario names does not push its titles out of
+				// line.
+				nameW, formatW := 0, 0
 				for _, s := range reg.Scenarios() {
-					_, _ = fmt.Fprintf(stdout, "%-18s %-9s %s\n", s.Name, s.Format, s.Title)
+					nameW, formatW = max(nameW, len(s.Name)), max(formatW, len(s.Format))
+				}
+				for _, s := range reg.Scenarios() {
+					_, _ = fmt.Fprintf(stdout, "%-*s  %-*s  %s\n", nameW, s.Name, formatW, s.Format, s.Title)
 				}
 				return nil
 			}
