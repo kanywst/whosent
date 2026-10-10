@@ -153,7 +153,7 @@ func TestUsageErrorsExitThree(t *testing.T) {
 		args    []string
 		mention string
 	}{
-		{"a missing chain file", []string{"check", filepath.Join(dir, "nope.json")}, "no such file"},
+		{"a missing chain file", []string{"check", filepath.Join(dir, "nope.json")}, "nope.json"},
 		{"an unknown flag", []string{"check", chain, "--nope"}, "unknown flag"},
 		{"a skew beyond the library's bound", []string{"check", chain, "--skew", "6m"}, "outside"},
 		{"an unreadable --at", []string{"check", chain, "--at", "tomorrow"}, "--at"},

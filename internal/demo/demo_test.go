@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -74,7 +75,12 @@ func TestEmitWritesAReproducibleFixture(t *testing.T) {
 		t.Errorf("chain.json: %v, %d links", err, len(links))
 	}
 	info, err := os.Stat(filepath.Join(dir, "chain.json"))
-	if err != nil || info.Mode().Perm() != 0o600 {
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Windows has no Unix permission bits: Go reports every writable file as
+	// 0666 there, so the mode says nothing about what Emit asked for.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("chain.json mode %v", info.Mode())
 	}
 }
@@ -119,7 +125,7 @@ func TestEmitNeverWritesThroughASymlink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fi.Mode()&os.ModeSymlink != 0 || fi.Mode().Perm() != 0o600 {
+	if fi.Mode()&os.ModeSymlink != 0 || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600) {
 		t.Errorf("chain.json is %v, want a regular 0600 file", fi.Mode())
 	}
 	leftovers, _ := filepath.Glob(filepath.Join(dir, ".whosent-*"))

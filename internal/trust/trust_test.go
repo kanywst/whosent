@@ -167,7 +167,11 @@ func TestParseDocumentSaysWhatItSkipped(t *testing.T) {
 func TestReadFileResolvesPathsAgainstTheTrustFile(t *testing.T) {
 	dir := t.TempDir()
 	tf := filepath.Join(dir, "trust.json")
-	write(t, tf, `{"issuers":{"a":{"jwks_file":"jwks/a.json"},"b":{"jwks_url":"https://keys.example.org/b"},"c":{"jwks_file":"/abs/c.json"}}}`)
+	// The absolute path is built from a real directory rather than written as
+	// "/abs/c.json", which is not absolute on Windows and would be joined.
+	abs := filepath.Join(t.TempDir(), "c.json")
+	absJSON, _ := json.Marshal(abs)
+	write(t, tf, `{"issuers":{"a":{"jwks_file":"jwks/a.json"},"b":{"jwks_url":"https://keys.example.org/b"},"c":{"jwks_file":`+string(absJSON)+`}}}`)
 	got, err := ReadFile(tf)
 	if err != nil {
 		t.Fatal(err)
@@ -175,7 +179,7 @@ func TestReadFileResolvesPathsAgainstTheTrustFile(t *testing.T) {
 	want := []Source{
 		{"a", filepath.Join(dir, "jwks", "a.json")},
 		{"b", "https://keys.example.org/b"},
-		{"c", "/abs/c.json"},
+		{"c", abs},
 	}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("got %v, want %v", got, want)
