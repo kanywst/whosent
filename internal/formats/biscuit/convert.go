@@ -87,6 +87,7 @@ func (a *analysis) chain(source string) *chain.Chain {
 	c.ChainFindings = append(c.ChainFindings, a.chainFinding...)
 	c.Matrix = a.matrix()
 	c.CheckedAgainst, c.Missing = a.checkedAgainst()
+	c.Ignored = a.opts.Ignored
 	a.verdict(c)
 	c.Summary = a.summary()
 	c.Describe = a.describe()
@@ -522,9 +523,6 @@ func (a *analysis) checkedAgainst() ([]chain.KV, []string) {
 		t += ", supplied to the checks as time(...)"
 	}
 	kv = append(kv, chain.KV{Key: "time", Value: t})
-	for _, ig := range a.opts.Ignored {
-		kv = append(kv, chain.KV{Key: "ignored", Value: ig, Tone: chain.ToneMuted})
-	}
 	return kv, missing
 }
 

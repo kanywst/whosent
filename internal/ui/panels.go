@@ -512,6 +512,9 @@ func (m Model) inputLines(iw int) []string {
 		}
 		out = append(out, m.kv(kv.Key, v, m.toneOf(kv.Tone), iw)...)
 	}
+	for _, ig := range r.Ignored {
+		out = append(out, m.kv("ignored", ig, m.toneOf(chain.ToneMuted), iw)...)
+	}
 	return out
 }
 

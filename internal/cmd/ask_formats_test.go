@@ -70,3 +70,33 @@ func TestAskSpeaksEachFormatsQuestion(t *testing.T) {
 		})
 	}
 }
+
+// An input flag a format has no use for used to be reported by Biscuit
+// alone, and only in some places: a JWT given --revocations said nothing,
+// which reads as if a revocation list had been checked. Every format now
+// says so, in check's human output and its JSON.
+func TestEveryFormatSaysWhichInputsItIgnored(t *testing.T) {
+	tests := []struct {
+		scenario string
+		extra    []string
+		flag     string
+	}{
+		{"jwt-bundle-healthy", []string{"--revocations", "x.json"}, "--revocations"},
+		{"jwt-bundle-healthy", []string{"--fact", `operation("read")`}, "--fact"},
+		{"biscuit-healthy", []string{"--audience", "https://api"}, "--audience"},
+		{"healthy", []string{"--authorizer", "authz.datalog"}, "--authorizer"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.scenario+" "+tt.flag, func(t *testing.T) {
+			args := append(append([]string{"check"}, emitScenario(t, tt.scenario)...), tt.extra...)
+			_, out, errOut := runCmd(t, "", args...)
+			if !strings.Contains(out, "Ignored: "+tt.flag) {
+				t.Errorf("human output does not say %s was ignored\nstdout: %s\nstderr: %s", tt.flag, out, errOut)
+			}
+			_, js, _ := runCmd(t, "", append(args, "--json")...)
+			if !strings.Contains(js, `"ignored"`) || !strings.Contains(js, tt.flag) {
+				t.Errorf("JSON output does not list %s as ignored: %s", tt.flag, js)
+			}
+		})
+	}
+}

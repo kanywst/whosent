@@ -194,7 +194,7 @@ How authority narrows
       = kept  ~ narrowed  - dropped  + added  ✗ widened (violation)
 ```
 
-`--json` prints the report as schema `whosent.chain/v1`, the same shape for every format (`format`, `verdict`, `break_at`, `root`, `rules`, `links`, `hops`, `findings`, `checked_against`), and nothing else on stdout. `--json --native` prints the format's own report instead; Mandatum's is `whosent.report/v1`.
+`--json` prints the report as schema `whosent.chain/v1`, the same shape for every format (`format`, `verdict`, `break_at`, `root`, `rules`, `links`, `hops`, `findings`, `checked_against`, and `missing` and `ignored` when there are any), and nothing else on stdout. An input flag the format has no use for is never silently dropped: `check` says `Ignored: --flag (why)`, and the view lists it under what the chain was checked against. `--json --native` prints the format's own report instead; Mandatum's is `whosent.report/v1`.
 
 | Verdict | Exit | Meaning |
 | :--- | :--: | :--- |

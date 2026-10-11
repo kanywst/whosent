@@ -594,6 +594,7 @@ func (s *session) describe(c *chain.Chain, plans []plan, at time.Time) {
 		c.CheckedAgainst = append(c.CheckedAgainst, chain.KV{Key: "audience", Value: "none given", Tone: chain.ToneWarn})
 	}
 	c.CheckedAgainst = append(c.CheckedAgainst, chain.KV{Key: "time", Value: at.UTC().Format("2006-01-02 15:04 UTC") + ", skew " + s.skew.String()})
+	c.Ignored = s.ignored
 
 	desc := []string{}
 	if last.Iss != "" {

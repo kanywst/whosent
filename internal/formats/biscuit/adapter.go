@@ -137,15 +137,12 @@ func optionsFrom(in chain.Inputs) (Options, error) {
 		parts = append(parts, filepath.Base(in.Authorizer))
 	}
 	o.AuthorizerSource = strings.Join(parts, " and ")
-	if in.Revocations != "" {
-		o.Ignored = append(o.Ignored, "--revocations (a Biscuit is revoked by block revocation ids: pass them with --revoked-jtis)")
-	}
-	if in.TrustFile != "" || len(in.JWKS) > 0 {
-		o.Ignored = append(o.Ignored, "--trust and --jwks (a Biscuit is rooted in a key: pass it with --root-key)")
-	}
-	if in.Audience != nil {
-		o.Ignored = append(o.Ignored, "--audience (a Biscuit names no audience; supply facts with --fact)")
-	}
+	o.Ignored = chain.IgnoredInputs(in, map[string]string{
+		"trust":       "a Biscuit is rooted in a key: give it with --root-key",
+		"jwks":        "a Biscuit is rooted in a key: give it with --root-key",
+		"revocations": "a Biscuit is revoked by block revocation ids: give them with --revoked-jtis",
+		"audience":    "a Biscuit names no audience; give facts with --fact",
+	})
 	return o, nil
 }
 

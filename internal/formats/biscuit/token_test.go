@@ -291,14 +291,8 @@ func TestTheRevocationListIsRead(t *testing.T) {
 	if !c.Links[2].Revoked || c.BreakAt != 2 {
 		t.Errorf("block 2 is on the list: revoked %v, break %d", c.Links[2].Revoked, c.BreakAt)
 	}
-	ignored := 0
-	for _, kv := range c.CheckedAgainst {
-		if kv.Key == "ignored" {
-			ignored++
-		}
-	}
-	if ignored != 3 {
-		t.Errorf("%d ignored inputs reported, want 3: %v", ignored, c.CheckedAgainst)
+	if len(c.Ignored) != 3 {
+		t.Errorf("%d ignored inputs reported, want 3 (--jwks, --revocations, --audience): %v", len(c.Ignored), c.Ignored)
 	}
 	if err := os.WriteFile(list, []byte("not hex\n"), 0o600); err != nil {
 		t.Fatal(err)

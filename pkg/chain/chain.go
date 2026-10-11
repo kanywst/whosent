@@ -228,6 +228,11 @@ type Chain struct {
 	// Missing names the inputs whose absence left rules unchecked, as flags
 	// a person can pass: "signatures (--trust or --jwks)".
 	Missing []string
+	// Ignored names the inputs that were given but that this format has no
+	// use for, each with why: "--revocations (a JWT has no revocation
+	// list)". A flag that silently does nothing reads as one that was
+	// checked, so every format says so, in the same words everywhere.
+	Ignored []string
 	// Simulated lists the identifiers whose revocation is being simulated.
 	// A simulation never changes what `check` reports for real.
 	Simulated []string

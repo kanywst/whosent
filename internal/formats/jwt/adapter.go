@@ -133,6 +133,13 @@ func (Adapter) Open(ctx context.Context, in chain.Inputs) (chain.Session, error)
 	s.source = in.Source
 	s.at = in.At
 	s.reversed = in.Reverse
+	s.ignored = chain.IgnoredInputs(in, map[string]string{
+		"root-key":     "a JWT is signed by its issuer: give the issuer's keys with --trust or --jwks",
+		"revocations":  "JWTs have no standard revocation list",
+		"revoked-jtis": "JWTs have no standard revocation list",
+		"fact":         "a JWT has no authorizer facts; ask about a scope with whosent ask --scope",
+		"authorizer":   "a JWT has no authorizer code; ask about a scope with whosent ask --scope",
+	})
 	return s, nil
 }
 
@@ -150,6 +157,8 @@ type session struct {
 	reversed bool
 	// demo is set for a scenario: its summary replaces the input line.
 	demo string
+	// ignored are the inputs given that a JWT has no use for.
+	ignored []string
 }
 
 func newSession(raws []string, keys keyring, audience *string, skew *time.Duration) *session {

@@ -196,3 +196,42 @@ type Adapter interface {
 	// Scenarios are the format's demos.
 	Scenarios() []Scenario
 }
+
+// inputFlags are the input flags in the order IgnoredInputs reports them.
+var inputFlags = []string{"trust", "jwks", "root-key", "revocations", "revoked-jtis", "audience", "fact", "authorizer"}
+
+// given reports whether the input a flag sets was given.
+func (in Inputs) given(flag string) bool {
+	switch flag {
+	case "trust":
+		return in.TrustFile != ""
+	case "jwks":
+		return len(in.JWKS) > 0
+	case "root-key":
+		return len(in.RootKeys) > 0
+	case "revocations":
+		return in.Revocations != ""
+	case "revoked-jtis":
+		return in.RevokedIDs != ""
+	case "audience":
+		return in.Audience != nil
+	case "fact":
+		return len(in.Facts) > 0
+	case "authorizer":
+		return in.Authorizer != ""
+	}
+	return false
+}
+
+// IgnoredInputs lists the inputs given that a format has no use for, as
+// "--flag (why)", from reasons keyed by flag name. A format passes a
+// reason for every input flag it does not read.
+func IgnoredInputs(in Inputs, reasons map[string]string) []string {
+	var out []string
+	for _, f := range inputFlags {
+		if why, ok := reasons[f]; ok && in.given(f) {
+			out = append(out, "--"+f+" ("+why+")")
+		}
+	}
+	return out
+}

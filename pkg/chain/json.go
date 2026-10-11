@@ -26,6 +26,7 @@ type JSONChain struct {
 	Findings         []JSONFind  `json:"findings"`
 	CheckedAgainst   []JSONKV    `json:"checked_against"`
 	Missing          []string    `json:"missing,omitempty"`
+	Ignored          []string    `json:"ignored,omitempty"`
 	Simulated        []string    `json:"simulated,omitempty"`
 	Inconsistency    *JSONIncons `json:"inconsistency,omitempty"`
 }
@@ -160,6 +161,7 @@ func (c *Chain) JSON() JSONChain {
 	for _, kv := range c.CheckedAgainst {
 		out.CheckedAgainst = append(out.CheckedAgainst, JSONKV{Key: kv.Key, Value: kv.Value})
 	}
+	out.Ignored = c.Ignored
 	if c.Inconsistency != nil {
 		out.Inconsistency = &JSONIncons{Detail: c.Inconsistency.Detail}
 	}

@@ -123,7 +123,13 @@ func (Adapter) Open(ctx context.Context, in chain.Inputs) (chain.Session, error)
 	if err != nil {
 		return nil, err
 	}
-	return NewSession(input.Links, opts, input.Info), nil
+	sess := NewSession(input.Links, opts, input.Info)
+	sess.ignored = chain.IgnoredInputs(in, map[string]string{
+		"root-key":   "a Mandatum chain is signed by named issuers: give their keys with --trust or --jwks",
+		"fact":       "Mandatum has no authorizer facts; ask about a request with whosent ask",
+		"authorizer": "Mandatum has no authorizer code; ask about a request with whosent ask",
+	})
+	return sess, nil
 }
 
 // options turns the inputs into diagnosis options. Files that cannot be
@@ -246,6 +252,8 @@ type Session struct {
 	links [][]byte
 	opts  diagnose.Options
 	input diagnose.InputInfo
+	// ignored are the inputs given that Mandatum has no use for.
+	ignored []string
 }
 
 // NewSession returns a session over links checked with opts. input
@@ -269,7 +277,9 @@ func (s *Session) Evaluate(ctx context.Context, eo chain.EvalOptions) (*chain.Ch
 	if err != nil {
 		return nil, err
 	}
-	return Convert(r), nil
+	c := Convert(r)
+	c.Ignored = s.ignored
+	return c, nil
 }
 
 // Report diagnoses the chain and returns the engine's own report.

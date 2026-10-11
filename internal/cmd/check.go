@@ -257,6 +257,9 @@ func writeReport(w io.Writer, c *chain.Chain) {
 	if len(c.Missing) > 0 {
 		p("\nNot checked: %s\n", strings.Join(c.Missing, ", "))
 	}
+	for _, ig := range c.Ignored {
+		p("Ignored: %s\n", ig)
+	}
 }
 
 func changeMark(k chain.ChangeKind) string {
