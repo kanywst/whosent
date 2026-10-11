@@ -18,7 +18,7 @@ make test-race      # GOTEST_ARGS=-short trims the guard property matrix
 make test-coverage  # gated at 85%, fails closed
 make lint
 make vulncheck
-make fuzz           # FuzzGuard, FuzzText, FuzzJSON for FUZZTIME each
+make fuzz           # every fuzzer (diagnose, termsafe, jwt, biscuit, datalog, trust, mandatum) for FUZZTIME each
 make completions    # after changing a flag or a subcommand
 ```
 

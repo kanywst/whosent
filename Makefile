@@ -103,9 +103,17 @@ FUZZTIME ?= 30s
 
 .PHONY: fuzz
 fuzz:
-	go test ./pkg/diagnose -run '^$$' -fuzz FuzzGuard -fuzztime $(FUZZTIME)
-	go test ./internal/termsafe -run '^$$' -fuzz FuzzText -fuzztime $(FUZZTIME)
-	go test ./internal/termsafe -run '^$$' -fuzz FuzzJSON -fuzztime $(FUZZTIME)
+	go test ./pkg/diagnose -run '^$$' -fuzz '^FuzzGuard$$' -fuzztime $(FUZZTIME)
+	go test ./internal/termsafe -run '^$$' -fuzz '^FuzzText$$' -fuzztime $(FUZZTIME)
+	go test ./internal/termsafe -run '^$$' -fuzz '^FuzzJSON$$' -fuzztime $(FUZZTIME)
+	go test ./internal/formats/jwt -run '^$$' -fuzz '^FuzzParse$$' -fuzztime $(FUZZTIME)
+	go test ./internal/formats/biscuit -run '^$$' -fuzz '^FuzzAnalyze$$' -fuzztime $(FUZZTIME)
+	go test ./internal/formats/biscuit/datalog -run '^$$' -fuzz '^FuzzParseProgram$$' -fuzztime $(FUZZTIME)
+	go test ./internal/trust -run '^$$' -fuzz '^FuzzParseDocumentAgreesWithTheLibrary$$' -fuzztime $(FUZZTIME)
+	go test ./internal/mandatum/mda -run '^$$' -fuzz '^FuzzClaimsValidate$$' -fuzztime $(FUZZTIME)
+	go test ./internal/mandatum/jose -run '^$$' -fuzz '^FuzzParse$$' -fuzztime $(FUZZTIME)
+	go test ./internal/mandatum/verify -run '^$$' -fuzz '^FuzzVerify$$' -fuzztime $(FUZZTIME)
+	go test ./internal/mandatum/revoke -run '^$$' -fuzz '^FuzzParseSet$$' -fuzztime $(FUZZTIME)
 
 # Clean build artifacts
 .PHONY: clean
