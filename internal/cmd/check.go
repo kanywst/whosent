@@ -111,6 +111,14 @@ func severityGlyph(s chain.Severity) string {
 func verdictLine(c *chain.Chain) string {
 	switch c.Verdict {
 	case chain.VerdictValid:
+		// A JWT names its prior actors only on the issuer's word (RFC 8693
+		// section 4.1), so "every link was checked" would be false for
+		// them. Exit 0 still holds: the token itself verifies, and only
+		// its current actor is authoritative.
+		if n := assertedLinks(c); n > 0 {
+			return fmt.Sprintf("✅ VALID: every checkable rule holds, but %d prior %s the issuer's word, not verified hop by hop",
+				n, plural(n, "actor is", "actors are"))
+		}
 		return "✅ VALID: every rule checked for every link, and the chain holds"
 	case chain.VerdictIncomplete:
 		return "⚠️  INCOMPLETE: nothing failed, but some rules were not checked, so nothing is vouched for"
@@ -119,6 +127,24 @@ func verdictLine(c *chain.Chain) string {
 		return fmt.Sprintf("❌ INVALID: the chain breaks at link %d, and no authority reaches below it", c.BreakAt)
 	}
 	return "❌ INVALID: the chain grants nothing"
+}
+
+// assertedLinks counts the links only the issuer vouches for.
+func assertedLinks(c *chain.Chain) int {
+	n := 0
+	for _, l := range c.Links {
+		if l.Asserted {
+			n++
+		}
+	}
+	return n
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // linkName is "from → to", or what to say when the link was unreadable.

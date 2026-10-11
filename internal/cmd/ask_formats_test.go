@@ -100,3 +100,20 @@ func TestEveryFormatSaysWhichInputsItIgnored(t *testing.T) {
 		})
 	}
 }
+
+// A token that verifies but names prior actors in its act claim is VALID,
+// yet nothing checked those actors. The report must not say every link was
+// checked, or a CI gate reading it would vouch for links nobody verified.
+func TestValidWithAssertedActorsSaysSo(t *testing.T) {
+	args := append([]string{"check"}, emitScenario(t, "jwt-okta-style")...)
+	code, out, errOut := runCmd(t, "", args...)
+	if code != ExitValid {
+		t.Fatalf("exit %d, want %d\nstdout: %s\nstderr: %s", code, ExitValid, out, errOut)
+	}
+	if strings.Contains(out, "every rule checked for every link") {
+		t.Errorf("claims every link was checked although prior actors are only asserted:\n%s", out)
+	}
+	if !strings.Contains(out, "2 prior actors are the issuer's word") {
+		t.Errorf("does not say the prior actors are only asserted:\n%s", out)
+	}
+}
