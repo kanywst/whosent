@@ -6,7 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/kanywst/whosent/pkg/diagnose"
+	"github.com/kanywst/whosent/pkg/chain"
 )
 
 // The rail is the chain drawn as what it is: a human at the left, the agents
@@ -24,17 +24,23 @@ const (
 	lookBroken              // a rule failed or could not be evaluated
 	lookRevoked             // revoked, or its revocation is being simulated
 	lookDead                // below a break: no authority reaches it
+	// lookAsserted: nothing failed, but the link's place in the chain is
+	// only someone else's say-so. It is drawn like an unverified link,
+	// amber and dashed, and never like a verified one.
+	lookAsserted
 )
 
-func linkLook(l diagnose.Link) look {
+func linkLook(l chain.Link) look {
 	switch {
 	case l.Unreached:
 		return lookDead
 	case l.Revoked || l.RevokedSimulated:
 		return lookRevoked
-	case l.State == diagnose.LinkBroken:
+	case l.State == chain.LinkBroken:
 		return lookBroken
-	case l.State == diagnose.LinkIncomplete:
+	case l.Asserted:
+		return lookAsserted
+	case l.State == chain.LinkIncomplete:
 		return lookUnsure
 	}
 	return lookOK
@@ -44,7 +50,7 @@ func (m Model) lookStyle(k look) lipgloss.Style {
 	switch k {
 	case lookOK:
 		return m.t.teal
-	case lookUnsure:
+	case lookUnsure, lookAsserted:
 		return m.t.amber
 	case lookBroken, lookRevoked:
 		return m.t.coral
@@ -56,7 +62,7 @@ func (m Model) agentGlyph(k look) string {
 	switch k {
 	case lookOK:
 		return m.g.agent
-	case lookUnsure:
+	case lookUnsure, lookAsserted:
 		return m.g.hollow
 	case lookBroken:
 		return m.g.broken
@@ -67,13 +73,15 @@ func (m Model) agentGlyph(k look) string {
 }
 
 // status is the one-word state of an agent, under its name.
-func (m Model) status(l diagnose.Link) string {
+func (m Model) status(l chain.Link) string {
 	g := m.g
 	switch linkLook(l) {
 	case lookOK:
 		return g.pass + " verified"
 	case lookUnsure:
 		return g.unchecked + " unverified"
+	case lookAsserted:
+		return g.unchecked + " asserted"
 	case lookBroken:
 		return g.fail + " broken"
 	case lookRevoked:
@@ -87,14 +95,14 @@ func (m Model) status(l diagnose.Link) string {
 
 // ruleMarks lists the rules a link fails, or failing that the ones left
 // unchecked, compactly: "✗ V4 V5".
-func (m Model) ruleMarks(l diagnose.Link) (string, lipgloss.Style) {
+func (m Model) ruleMarks(l chain.Link) (string, lipgloss.Style) {
 	var bad, unsure []string
 	for _, c := range l.Checks {
 		switch {
 		case c.Status.Blocking():
-			bad = append(bad, string(c.Rule))
-		case c.Status == diagnose.StatusUnchecked:
-			unsure = append(unsure, string(c.Rule))
+			bad = append(bad, m.clean(c.Rule))
+		case c.Status == chain.StatusUnchecked:
+			unsure = append(unsure, m.clean(c.Rule))
 		}
 	}
 	switch {
@@ -102,31 +110,34 @@ func (m Model) ruleMarks(l diagnose.Link) (string, lipgloss.Style) {
 		return m.g.fail + " " + strings.Join(bad, " "), m.t.coral
 	case len(unsure) > 0:
 		return m.g.unchecked + " " + strings.Join(unsure, " "), m.t.amber
+	case l.Asserted:
+		// Nothing failed, but nothing verified it either: a tick here would
+		// draw the issuer's word as a checked link.
+		return m.g.unchecked, m.t.amber
 	}
 	return m.g.pass, m.t.mint
 }
 
 // vitals is an agent's remaining delegation depth as pips, and its time left.
-func (m Model) vitals(l diagnose.Link) string {
-	r, g, t := m.report, m.g, m.t
-	if l.Claims == nil {
+func (m Model) vitals(l chain.Link) string {
+	g, t := m.g, m.t
+	if !l.Readable {
 		return t.slate.Render("unreadable")
 	}
-	total := l.Claims.Mandatum.MaxDepth
-	if len(r.Links) > 0 && r.Links[0].Claims != nil {
-		total = max(total, r.Links[0].Claims.Mandatum.MaxDepth)
+	var parts []string
+	if d := l.Depth; d != nil {
+		left := min(d.Left, d.Total)
+		parts = append(parts, t.gold.UnsetBold().Render(strings.Repeat(g.pipOn, max(left, 0)))+
+			t.slate.Render(strings.Repeat(g.pipOff, max(d.Total-left, 0))))
 	}
-	total = min(total, 6)
-	left := min(l.Claims.Mandatum.MaxDepth, total)
-	pips := t.gold.UnsetBold().Render(strings.Repeat(g.pipOn, max(left, 0))) +
-		t.slate.Render(strings.Repeat(g.pipOff, max(total-left, 0)))
-	if l.ExpiresAt.IsZero() {
-		return pips
+	switch {
+	case l.ExpiresAt.IsZero():
+	case l.Remaining <= 0:
+		parts = append(parts, t.coral.Render("expired"))
+	default:
+		parts = append(parts, t.muted.Render(chain.Human(l.Remaining)))
 	}
-	if l.Remaining <= 0 {
-		return pips + " " + t.coral.Render("expired")
-	}
-	return pips + " " + t.muted.Render(diagnose.Human(l.Remaining))
+	return strings.Join(parts, " ")
 }
 
 // renderRail picks the horizontal rail when the whole chain fits across the
@@ -197,10 +208,9 @@ func (m Model) railAcross(W int) ([]string, bool) {
 func (m Model) nodeWidth(j int) int {
 	r := m.report
 	if j == 0 {
-		w := max(width(m.sponsorName())+2, len("sponsor"))
-		if r.Sponsor != nil {
-			w = max(w, width(m.clean(strings.Join(r.Sponsor.AuthenticationMethods, "+"))))
-			w = max(w, width("via "+m.clean(diagnose.Short(r.Sponsor.Issuer))))
+		w := max(width(m.sponsorName())+2, width(m.rootRole()))
+		for _, d := range r.Root.Details {
+			w = max(w, width(m.clean(d)))
 		}
 		return w
 	}
@@ -216,12 +226,12 @@ func (m Model) nodeAcross(j, cw int, fs flowState) [4]string {
 	if j == 0 {
 		r := m.report
 		out[0] = m.fit(t.gold.Render(g.sponsor+" "+m.clip(m.sponsorName(), cw-2)), cw)
-		out[1] = m.fit(t.muted.Render("sponsor"), cw)
-		if r.Sponsor != nil {
-			out[2] = m.fit(t.slate.Render(m.clean(strings.Join(r.Sponsor.AuthenticationMethods, "+"))), cw)
-			out[3] = m.fit(t.slate.Render("via "+m.clean(diagnose.Short(r.Sponsor.Issuer))), cw)
-		} else {
-			out[2], out[3] = m.fit("", cw), m.fit("", cw)
+		out[1] = m.fit(t.muted.Render(m.rootRole()), cw)
+		out[2], out[3] = m.fit("", cw), m.fit("", cw)
+		for k, d := range r.Root.Details {
+			if k < 2 {
+				out[2+k] = m.fit(t.slate.Render(m.clean(d)), cw)
+			}
 		}
 		return out
 	}
@@ -271,7 +281,10 @@ func (m Model) nodeAcross(j, cw int, fs flowState) [4]string {
 	if k == lookDead {
 		barStyle = t.slate
 	}
-	if l.Claims != nil {
+	// The life bar needs both ends of a lifetime. A link whose format
+	// records only an expiry shows its time left as text, above, and no
+	// bar that would have to invent a start.
+	if l.Readable && !l.ExpiresAt.IsZero() && !l.IssuedAt.IsZero() {
 		out[3] = m.fit(m.bar(lifeFraction(l), min(cw, 10), barStyle), cw)
 	} else {
 		out[3] = m.fit("", cw)
@@ -363,7 +376,7 @@ func (m Model) arrow(i int, k look, n int, fs flowState) string {
 	switch k {
 	case lookOK:
 		return style.Render(strings.Repeat(g.edge, body) + g.head)
-	case lookUnsure:
+	case lookUnsure, lookAsserted:
 		return style.Render(strings.Repeat(g.edgeUnchecked, body) + g.head)
 	case lookBroken, lookRevoked:
 		if m.flashing(i) {
@@ -407,10 +420,9 @@ func (m Model) railDown(W, H int) []string {
 	nameW = min(nameW, max(W/3, 12))
 
 	var rows []string
-	sp := "  " + t.gold.Render(g.sponsor+" "+m.fit(m.sponsorName(), nameW)) + "  " + t.muted.Render("sponsor")
-	if r.Sponsor != nil {
-		sp += t.slate.Render(" " + g.dot + " " + m.clean(strings.Join(r.Sponsor.AuthenticationMethods, "+")) +
-			" " + g.dot + " via " + m.clean(diagnose.Short(r.Sponsor.Issuer)))
+	sp := "  " + t.gold.Render(g.sponsor+" "+m.fit(m.sponsorName(), nameW)) + "  " + t.muted.Render(m.rootRole())
+	for _, d := range r.Root.Details {
+		sp += t.slate.Render(" " + g.dot + " " + m.clean(d))
 	}
 	rows = append(rows, m.fit(sp, W))
 
@@ -437,7 +449,7 @@ func (m Model) railDown(W, H int) []string {
 			switch {
 			case !lit || settledDead:
 				v = g.vEdgeDead
-			case k == lookUnsure:
+			case k == lookUnsure || k == lookAsserted:
 				v = g.vEdgeUnchecked
 			case k == lookBroken:
 				v = g.breakMark

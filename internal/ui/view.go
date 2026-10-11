@@ -3,13 +3,12 @@ package ui
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/kanywst/whosent/pkg/diagnose"
+	"github.com/kanywst/whosent/pkg/chain"
 )
 
 // Minimum terminal size. Below it the view says so instead of drawing a
@@ -149,7 +148,7 @@ func (m Model) renderHeader(W int) string {
 	left := " " + t.gold.Render(g.sponsor+" whosent") + "  "
 	name := s.Name
 	if name == "" && m.report != nil {
-		name = m.report.Input.Source
+		name = m.report.Source
 	}
 	left += t.bright.Render(m.clean(name))
 	if s.Title != "" {
@@ -179,9 +178,9 @@ func (m Model) timeLabel() string {
 	rel := "now"
 	switch {
 	case m.offset > 0:
-		rel = "+" + diagnose.Human(m.offset)
+		rel = "+" + chain.Human(m.offset)
 	case m.offset < 0:
-		rel = "-" + diagnose.Human(-m.offset)
+		rel = "-" + chain.Human(-m.offset)
 	}
 	return rel + " " + at.Format("15:04")
 }
@@ -198,10 +197,8 @@ func plural(n int) string {
 func (m Model) renderBanner(W int) []string {
 	r, t := m.report, m.t
 	var out []string
-	if !r.Library.Consistent {
-		msg := fmt.Sprintf(" !! INTERNAL INCONSISTENCY  whosent says %s, mandatum says %s. Trust the library, and report this. ",
-			describeRuleAt(r.Library.ToolRule, r.Library.ToolLink), describeLibrary(r.Library))
-		out = append(out, t.badgeAlarm.Render(m.fit(m.clean(msg), W)))
+	if r.Inconsistency != nil {
+		out = append(out, t.badgeAlarm.Render(m.fit(" "+m.clean(r.Inconsistency.Banner)+" ", W)))
 	}
 	k, label, sentence := m.verdict()
 	badge := m.badge(k).Render(" " + label + " ")
@@ -263,54 +260,42 @@ func (m Model) renderBanner(W int) []string {
 	return out
 }
 
-func describeRuleAt(rule diagnose.Rule, link int) string {
-	if rule == "" {
-		return "the chain verifies"
-	}
-	if link < 0 {
-		return string(rule) + " on the whole chain"
-	}
-	return fmt.Sprintf("%s at link %d", rule, link)
-}
-
-func describeLibrary(l diagnose.LibraryCheck) string {
-	if l.Passed {
-		return "the chain verifies"
-	}
-	return describeRuleAt(l.Rule, l.Link)
-}
-
+// inputLine says what was checked and how, for a chain with no summary of
+// its own.
 func (m Model) inputLine() string {
-	r := m.report
-	parts := []string{fmt.Sprintf("%d link%s", len(r.Links), plural(len(r.Links)))}
-	if r.Input.Format != "" {
-		parts = append(parts, r.Input.Format)
-	}
-	if r.AudienceChecked {
-		parts = append(parts, "audience "+r.Audience)
-	}
-	parts = append(parts, "skew "+r.Skew.String())
-	return strings.Join(parts, " "+m.g.dot+" ")
+	return strings.Join(m.report.Summary, " "+m.g.dot+" ")
 }
 
 // verdict is the banner: what the chain amounts to, said the way a person
 // would say it.
 func (m Model) verdict() (tone, string, string) {
 	r, g := m.report, m.g
-	sponsor := "the sponsor"
-	if r.Sponsor != nil {
-		sponsor = diagnose.Short(r.Sponsor.Subject)
+	if r.Headline != "" {
+		switch r.Verdict {
+		case chain.VerdictValid:
+			return toneGood, g.pass + " VALID", r.Headline
+		case chain.VerdictIncomplete:
+			return toneUnsure, g.unchecked + " INCOMPLETE", r.Headline
+		}
+		return toneBad, g.fail + " INVALID", r.Headline
+	}
+	sponsor := "the " + m.rootRole()
+	if r.Root.Name != "" {
+		sponsor = m.clean(r.Root.Name)
 	}
 	leaf := "the leaf"
 	if n := len(r.Links); n > 0 {
 		leaf = m.agentName(n - 1)
 	}
 	switch r.Verdict {
-	case diagnose.VerdictValid:
+	case chain.VerdictValid:
 		return toneGood, g.pass + " VALID", fmt.Sprintf("%s's authority reaches %s through %d link%s. Every rule was checked.",
 			sponsor, leaf, len(r.Links), plural(len(r.Links)))
-	case diagnose.VerdictIncomplete:
-		why := m.uncheckedReasons()
+	case chain.VerdictIncomplete:
+		why := r.IncompleteReason
+		if why == "" {
+			why = "some rules were not checked"
+		}
 		return toneUnsure, g.unchecked + " INCOMPLETE", fmt.Sprintf("Nothing failed, but it is not verified: %s.", why)
 	}
 	if r.BreakAt >= 0 && r.BreakAt < len(r.Links) {
@@ -332,12 +317,31 @@ func (m Model) verdict() (tone, string, string) {
 	return toneBad, g.fail + " INVALID", "The chain does not verify."
 }
 
+// rootRole is what the format calls the root of a chain.
+func (m Model) rootRole() string {
+	if m.report != nil && m.report.Format.RootRole != "" {
+		return m.clean(m.report.Format.RootRole)
+	}
+	return "root"
+}
+
+// ruleTitle is a rule's id and its title, such as "V4 time".
+func (m Model) ruleTitle(id string) string {
+	if m.report == nil {
+		return id
+	}
+	if t := m.report.Format.Rule(id).Title; t != "" {
+		return m.clean(id + " " + t)
+	}
+	return m.clean(id)
+}
+
 // failingRules names the rules a link fails, by their titles.
-func (m Model) failingRules(l diagnose.Link) string {
+func (m Model) failingRules(l chain.Link) string {
 	var parts []string
 	for _, c := range l.Checks {
 		if c.Status.Blocking() {
-			s := string(c.Rule) + " " + c.Rule.Title()
+			s := m.ruleTitle(c.Rule)
 			if c.Simulated {
 				s += " (sim)"
 			}
@@ -350,76 +354,35 @@ func (m Model) failingRules(l diagnose.Link) string {
 	return strings.Join(parts, ", ")
 }
 
-// uncheckedReasons says what was missing, in terms of the inputs a person
-// would supply rather than rule numbers.
-func (m Model) uncheckedReasons() string {
-	r := m.report
-	keys := map[string]bool{}
-	revocation, audience := false, false
-	for _, l := range r.Links {
-		for _, c := range l.Checks {
-			if c.Status != diagnose.StatusUnchecked {
-				continue
-			}
-			switch c.Rule {
-			case diagnose.V3:
-				if l.Claims != nil {
-					keys[l.Claims.Issuer] = true
-				} else {
-					keys["?"] = true
-				}
-			case diagnose.V8:
-				revocation = true
-			case diagnose.V9:
-				audience = true
-			}
-		}
-	}
-	var parts []string
-	if n := len(keys); n > 0 {
-		parts = append(parts, fmt.Sprintf("no keys for %d issuer%s", n, plural(n)))
-	}
-	if revocation {
-		parts = append(parts, "no revocation set")
-	}
-	if audience {
-		parts = append(parts, "no audience")
-	}
-	if len(parts) == 0 {
-		return "some rules were not checked"
-	}
-	return strings.Join(parts, ", ")
-}
-
-// agentName is the short name of link i's subject: the agent it grants to.
+// agentName is the short name of whoever link i grants to.
 func (m Model) agentName(i int) string {
 	r := m.report
 	if r == nil || i < 0 || i >= len(r.Links) {
 		return "?"
 	}
-	if c := r.Links[i].Claims; c != nil {
-		return m.clean(diagnose.Short(c.Subject))
+	if l := r.Links[i]; l.To != "" {
+		return m.clean(l.To)
 	}
 	return fmt.Sprintf("link %d", i)
 }
 
-// issuerName is the short name of whoever signed link i.
+// issuerName is the short name of whoever handed link i over.
 func (m Model) issuerName(i int) string {
 	r := m.report
 	if r == nil || i < 0 || i >= len(r.Links) {
 		return "?"
 	}
-	if c := r.Links[i].Claims; c != nil {
-		return m.clean(diagnose.Short(c.Issuer))
+	if l := r.Links[i]; l.From != "" {
+		return m.clean(l.From)
 	}
 	return "?"
 }
 
 func (m Model) sponsorName() string {
-	if r := m.report; r != nil && r.Sponsor != nil {
-		return m.clean(diagnose.Short(r.Sponsor.Subject))
+	if r := m.report; r != nil && r.Root.Name != "" {
+		return m.clean(r.Root.Name)
 	}
-	return "sponsor"
+	return m.rootRole()
 }
 
 // hints renders key hints, dropping from the end until they fit.
@@ -440,15 +403,33 @@ func (m Model) hints(w int, pairs [][2]string) string {
 
 func (m Model) renderFooter(W int) string {
 	var pairs [][2]string
+	caps := m.caps()
+	_, canAsk := m.asker()
 	switch {
 	case m.clock:
 		step, big := m.scrubSteps()
 		pairs = [][2]string{
-			{"←→", "±" + diagnose.Human(step)}, {"[ ]", "±" + diagnose.Human(big)}, {"0", "back to now"},
-			{"h l", "link"}, {"x", "revoke"}, {"t", "done"}, {"q", "quit"},
+			{"←→", "±" + chain.Human(step)}, {"[ ]", "±" + chain.Human(big)}, {"0", "back to now"},
+			{"h l", "link"},
 		}
+		if caps.RevokeSim {
+			pairs = append(pairs, [2]string{"x", "revoke"})
+		}
+		pairs = append(pairs, [2]string{"t", "done"}, [2]string{"q", "quit"})
 	default:
-		pairs = [][2]string{{"←→", "link"}, {"↑↓", "authority"}, {"t", "time"}, {"x", "revoke"}, {"a", "ask"}}
+		pairs = [][2]string{{"←→", "link"}}
+		if m.rows() > 0 {
+			pairs = append(pairs, [2]string{"↑↓", "authority"})
+		}
+		if caps.TimeScrub {
+			pairs = append(pairs, [2]string{"t", "time"})
+		}
+		if caps.RevokeSim {
+			pairs = append(pairs, [2]string{"x", "revoke"})
+		}
+		if canAsk {
+			pairs = append(pairs, [2]string{"a", "ask"})
+		}
 		if m.offset != 0 {
 			// Scrubbed and out of time mode: the way back has to stay in
 			// sight, or the header's +20m is a state with no exit.
@@ -472,24 +453,11 @@ func (m Model) renderFooter(W int) string {
 	return " " + m.hints(W-1, pairs)
 }
 
-// remaining words a link's time left, or how long ago it expired.
-func remaining(l diagnose.Link) (string, bool) {
-	if l.ExpiresAt.IsZero() {
-		return "", true
-	}
-	if l.Remaining <= 0 {
-		return "expired " + diagnose.Human(-l.Remaining) + " ago", false
-	}
-	return diagnose.Human(l.Remaining) + " left", true
-}
-
 // lifeFraction is how much of a link's lifetime is left.
-func lifeFraction(l diagnose.Link) float64 {
+func lifeFraction(l chain.Link) float64 {
 	life := l.ExpiresAt.Sub(l.IssuedAt)
 	if life <= 0 {
 		return 0
 	}
 	return float64(l.Remaining) / float64(life)
 }
-
-func clockTime(t time.Time) string { return t.UTC().Format("15:04 UTC") }

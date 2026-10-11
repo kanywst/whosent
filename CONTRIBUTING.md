@@ -35,7 +35,9 @@ CI runs the same three, plus the race detector on Linux, macOS and Windows. `mak
 - Not checked is never pass. `StatusUnchecked`, `StatusError` and `StatusSkipped` each have their own glyph and colour, and none of them looks like a pass.
 - Every string from a chain, a key document or a library error goes through `internal/termsafe` before it is printed or rendered. In `internal/cmd` that is `print.go`; in `internal/ui` it is `clean` in `text.go`. Do not print around them.
 - `View()` is pure, and every rendered line must fit the terminal. The size sweep in `internal/ui` renders every scenario and view at many sizes; keep it passing rather than narrowing it.
-- The `--json` schemas (`whosent.report/v1`, `whosent.ask/v1`) are a translation layer in `pkg/diagnose/json.go`, not json tags on the internal types. Changing a field there changes a contract.
+- The `--json` schemas are translation layers, not json tags on the internal types: `whosent.chain/v1` in `pkg/chain/json.go` (every format), and Mandatum's own `whosent.report/v1` and `whosent.ask/v1` in `pkg/diagnose/json.go` (`--native`, and `ask --json`). Changing a field there changes a contract.
+- A new token format is an adapter under `internal/formats/<id>`, added to `internal/formats/all` and nowhere else. [docs/adapters.md](docs/adapters.md) is the contract; `pkg/chain/chaintest` is the suite it must pass.
+- Each format has its own reference to agree with. Mandatum: the embedded v0.2.0 verifier, checked on every run by the guard. Biscuit: the specification's 38 sample tokens in `internal/formats/biscuit/testdata/samples`, which every printer and authorizer change must keep matching. JWT: RFC 8693 and the drafts in [docs/jwt.md](docs/jwt.md); rules J7 to J10 are whosent's own and are labelled so.
 
 ## Reporting a bug
 

@@ -70,13 +70,19 @@ func (m Model) renderTimeline(W int) []string {
 		for k := range cells {
 			cells[k] = cell{" ", t.text}
 		}
-		if !l.IssuedAt.IsZero() && !l.ExpiresAt.IsZero() {
-			a, b := col(l.IssuedAt), col(l.ExpiresAt)
+		if !l.ExpiresAt.IsZero() {
+			// A link whose format records no issue time (a Biscuit block
+			// carries only checks on the time) is drawn from the start of
+			// the axis: alive since before anything here, until it expires.
+			a, b := 0, col(l.ExpiresAt)
+			if !l.IssuedAt.IsZero() {
+				a = col(l.IssuedAt)
+			}
 			style := t.teal
 			switch {
 			case !at.Before(l.ExpiresAt):
 				style = t.coral
-			case at.Before(l.IssuedAt):
+			case !l.IssuedAt.IsZero() && at.Before(l.IssuedAt):
 				style = t.chrome
 			}
 			if linkLook(l) == lookDead {

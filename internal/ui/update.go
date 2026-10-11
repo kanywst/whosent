@@ -81,12 +81,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateMain(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	n := 0
-	rows := 0
 	if m.report != nil {
 		n = len(m.report.Links)
-		rows = len(m.report.Matrix.Rows)
 	}
+	rows := m.rows()
 	step, big := m.scrubSteps()
+	caps := m.caps()
 
 	switch k := msg.String(); k {
 	case "q":
@@ -102,7 +102,7 @@ func (m Model) updateMain(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "left", "right":
-		if m.clock {
+		if m.clock && caps.TimeScrub {
 			d := step
 			if k == "left" {
 				d = -d
@@ -116,11 +116,15 @@ func (m Model) updateMain(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "l":
 		m = m.selectLink(true, n)
 	case "shift+left", "[":
-		m = m.scrubBy(-big)
-		return m, m.tick()
+		if caps.TimeScrub {
+			m = m.scrubBy(-big)
+			return m, m.tick()
+		}
 	case "shift+right", "]":
-		m = m.scrubBy(big)
-		return m, m.tick()
+		if caps.TimeScrub {
+			m = m.scrubBy(big)
+			return m, m.tick()
+		}
 	case "0":
 		if m.offset != 0 {
 			m.offset = 0
@@ -128,7 +132,9 @@ func (m Model) updateMain(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.tick()
 		}
 	case "t":
-		m.clock = !m.clock
+		if caps.TimeScrub {
+			m.clock = !m.clock
+		}
 
 	case "up", "k":
 		m.row = max(m.row-1, 0)
@@ -166,8 +172,10 @@ func (m Model) updateMain(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "a":
-		m.ask = m.newAsk()
-		m.overlay = overlayAsk
+		if _, ok := m.asker(); ok {
+			m.ask = m.newAsk()
+			m.overlay = overlayAsk
+		}
 
 	case "n", "p":
 		if len(m.cfg.Sessions) > 1 {

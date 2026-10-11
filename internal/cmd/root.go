@@ -11,14 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kanywst/whosent/internal/mandatum/revoke"
-	"github.com/kanywst/whosent/internal/mandatum/verify"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/kanywst/whosent/internal/trust"
+	"github.com/kanywst/whosent/internal/formats/all"
 	"github.com/kanywst/whosent/internal/ui"
-	"github.com/kanywst/whosent/pkg/diagnose"
+	"github.com/kanywst/whosent/pkg/chain"
 )
 
 // Exit codes. Only a chain that verified with every input supplied exits 0,
@@ -31,11 +29,23 @@ const (
 	ExitInconsistent = 70
 )
 
-// maxInput bounds how much of a file or stdin is read: mandatum's MCP
+// maxInput bounds how much of a file or stdin is read. Mandatum's MCP
 // enforcement point reads at most this much of a request (its
-// DefaultMaxBodyBytes), so a larger chain is one no enforcement point using
-// it ever sees. A real chain is a few kilobytes.
+// DefaultMaxBodyBytes), and a token of any format this tool reads is a few
+// kilobytes, so a larger input is not a delegation chain.
 const maxInput = 1 << 20
+
+// defaultSkew and maxSkew bound --skew. An adapter may narrow them for its
+// format; none may widen them, because a large skew silently extends the
+// life of every token it is applied to.
+const (
+	defaultSkew = 30 * time.Second
+	maxSkew     = 5 * time.Minute
+)
+
+// defaultMaxAge is the oldest revocation set accepted unless --max-age says
+// otherwise.
+const defaultMaxAge = 24 * time.Hour
 
 // exitError carries an exit code out of a command without printing anything:
 // the command has already said what it had to.
@@ -67,12 +77,16 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 // flags are the inputs every command that reads a chain shares.
 type flags struct {
+	format      string
 	trust       string
 	jwks        []string
+	rootKeys    []string
 	revocations string
 	revokedJTIs string
 	maxAge      time.Duration
 	audience    string
+	facts       []string
+	authorizer  string
 	at          string
 	skew        time.Duration
 	reverse     bool
@@ -82,15 +96,17 @@ type flags struct {
 
 func newRoot(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
 	f := &flags{}
+	reg := all.Registry()
 	root := &cobra.Command{
 		Use:   "whosent [FILE|-]",
 		Short: "Who sent this agent, and what is it still allowed to do?",
-		Long: `whosent opens a Mandatum delegation chain and shows the human it is rooted in,
-how authority narrows at every hop, and exactly where trust breaks.
+		Long: `whosent opens a delegation chain and shows who it is rooted in, how
+authority narrows at every hop, and exactly where trust breaks.
 
-The chain is read from FILE, or from stdin with "-" or when stdin is a pipe. It
-may be a JSON array of compact serializations (the wire form), an MCP
-tools/call request carrying one, or one serialization per line.
+Formats: ` + strings.Join(reg.IDs(), ", ") + `. The format is recognised from
+the input; --format says it when the input could be more than one.
+
+The chain is read from FILE, or from stdin with "-" or when stdin is a pipe.
 
 Rules that need an input you did not give (keys, a revocation set, an
 audience) are reported as unchecked, never as passing.`,
@@ -105,11 +121,11 @@ audience) are reported as unchecked, never as passing.`,
 			if !isTerminal(stdout) {
 				return errors.New("the interactive view needs a terminal; use `whosent check` for a report")
 			}
-			in, opts, err := f.load(cmd, args, stdin)
+			sess, source, err := f.load(cmd, reg, args, stdin)
 			if err != nil {
 				return err
 			}
-			s := ui.Session{Name: in.Info.Source, Links: in.Links, Options: opts, Input: in.Info}
+			s := ui.Session{Name: source, Chain: sess}
 			return ui.Run(ui.Config{Sessions: []ui.Session{s}, Motion: !f.noMotion, ASCII: f.ascii || asciiFromEnv()})
 		},
 	}
@@ -121,21 +137,25 @@ audience) are reported as unchecked, never as passing.`,
 	})
 
 	p := root.PersistentFlags()
+	p.StringVar(&f.format, "format", "", "the chain's format: "+strings.Join(reg.IDs(), ", ")+" (default: recognised from the input)")
 	p.StringVar(&f.trust, "trust", "", "trust file mapping issuers to their key documents")
 	p.StringArrayVar(&f.jwks, "jwks", nil, "an issuer's keys, as ISSUER=PATH or ISSUER=https://URL (repeatable)")
-	p.StringVar(&f.revocations, "revocations", "", "published revocation set (compact Bloom filter, section 7.1)")
-	p.StringVar(&f.revokedJTIs, "revoked-jtis", "", "exact list of revoked jtis, one per line, to resolve filter hits")
-	p.DurationVar(&f.maxAge, "max-age", diagnose.DefaultMaxAge, "oldest revocation set accepted; 0 accepts any age")
-	p.StringVar(&f.audience, "audience", "", "the resource server the chain is presented to (checks V9)")
+	p.StringArrayVar(&f.rootKeys, "root-key", nil, "a public key a chain may be rooted in, as hex or a file (repeatable)")
+	p.StringVar(&f.revocations, "revocations", "", "published revocation set")
+	p.StringVar(&f.revokedJTIs, "revoked-jtis", "", "exact list of revoked identifiers, one per line, to resolve filter hits")
+	p.DurationVar(&f.maxAge, "max-age", defaultMaxAge, "oldest revocation set accepted; 0 accepts any age")
+	p.StringVar(&f.audience, "audience", "", "the party the chain is presented to (checks the audience rule)")
+	p.StringArrayVar(&f.facts, "fact", nil, "a fact an authorizer supplies, such as 'operation(\"read\")' (repeatable)")
+	p.StringVar(&f.authorizer, "authorizer", "", "a file of authorizer code to evaluate the chain's checks against")
 	p.StringVar(&f.at, "at", "", "evaluate at this time: RFC 3339, unix seconds, or relative like +25m or -1h")
-	p.DurationVar(&f.skew, "skew", verify.DefaultSkew, "clock skew tolerance, at most "+verify.MaxSkew.String())
+	p.DurationVar(&f.skew, "skew", defaultSkew, "clock skew tolerance, at most "+maxSkew.String())
 	p.BoolVar(&f.reverse, "reverse", false, "the chain was handed over leaf first; reverse it before checking")
 	p.BoolVar(&f.noMotion, "no-motion", false, "no animation")
 	p.BoolVar(&f.ascii, "ascii", false, "ASCII glyphs only (also WHOSENT_ASCII=1)")
 
-	root.AddCommand(newCheck(f, stdin, stdout, stderr))
-	root.AddCommand(newAsk(f, stdin, stdout, stderr))
-	root.AddCommand(newDemo(f, stdout))
+	root.AddCommand(newCheck(f, reg, stdin, stdout, stderr))
+	root.AddCommand(newAsk(f, reg, stdin, stdout, stderr))
+	root.AddCommand(newDemo(f, reg, stdout))
 	root.AddCommand(newVersion(stdout))
 	return root
 }
@@ -150,8 +170,9 @@ func isTerminal(w io.Writer) bool {
 	return ok && term.IsTerminal(int(f.Fd()))
 }
 
-// readChain reads the chain from the named file, or stdin.
-func readChain(args []string, stdin io.Reader) (diagnose.Input, error) {
+// readChain reads the chain from the named file, or stdin, and returns its
+// bytes and a name for it.
+func readChain(args []string, stdin io.Reader) ([]byte, string, error) {
 	name := "-"
 	if len(args) > 0 {
 		name = args[0]
@@ -160,25 +181,25 @@ func readChain(args []string, stdin io.Reader) (diagnose.Input, error) {
 	source := name
 	if name == "-" {
 		if f, ok := stdin.(*os.File); ok && len(args) == 0 && term.IsTerminal(int(f.Fd())) {
-			return diagnose.Input{}, errors.New("no chain given: pass a file, pipe one in, or run `whosent demo`")
+			return nil, "", errors.New("no chain given: pass a file, pipe one in, or run `whosent demo`")
 		}
 		r, source = stdin, "stdin"
 	} else {
 		f, err := os.Open(name)
 		if err != nil {
-			return diagnose.Input{}, fmt.Errorf("reading chain: %w", err)
+			return nil, "", fmt.Errorf("reading chain: %w", err)
 		}
 		defer func() { _ = f.Close() }()
 		r = f
 	}
 	data, err := io.ReadAll(io.LimitReader(r, maxInput+1))
 	if err != nil {
-		return diagnose.Input{}, fmt.Errorf("reading %s: %w", source, err)
+		return nil, "", fmt.Errorf("reading %s: %w", source, err)
 	}
 	if len(data) > maxInput {
-		return diagnose.Input{}, fmt.Errorf("%s is larger than %d bytes; that is not a delegation chain", source, maxInput)
+		return nil, "", fmt.Errorf("%s is larger than %d bytes; that is not a delegation chain", source, maxInput)
 	}
-	return diagnose.ReadInput(data, source)
+	return data, source, nil
 }
 
 // parseAt reads --at against a single captured now.
@@ -204,122 +225,84 @@ func parseAt(s string, now time.Time) (time.Time, error) {
 	return t, nil
 }
 
-// options turns the flags into diagnosis options. Files that cannot be read
-// are usage errors; a key document that is read but unusable is not, because
-// an enforcement point configured with it would deny, and the report has to
-// show that.
-func (f *flags) options(ctx context.Context, cmd *cobra.Command) (diagnose.Options, error) {
-	var o diagnose.Options
+// inputs turns the flags into what an adapter reads. Only the checks every
+// format shares happen here; each adapter checks the rest itself.
+func (f *flags) inputs(cmd *cobra.Command, data []byte, source string) (chain.Inputs, error) {
+	in := chain.Inputs{
+		Data: data, Source: source,
+		TrustFile: f.trust, JWKS: f.jwks, RootKeys: f.rootKeys,
+		Revocations: f.revocations, RevokedIDs: f.revokedJTIs, MaxAge: f.maxAge,
+		Facts: f.facts, Authorizer: f.authorizer, Reverse: f.reverse,
+	}
 	at, err := parseAt(f.at, time.Now())
 	if err != nil {
-		return o, err
+		return in, err
 	}
-	o.At = at
-	if f.skew < 0 || f.skew > verify.MaxSkew {
-		return o, fmt.Errorf("--skew %s is outside [0, %s]", f.skew, verify.MaxSkew)
+	in.At = at
+	if f.skew < 0 || f.skew > maxSkew {
+		return in, fmt.Errorf("--skew %s is outside [0, %s]", f.skew, maxSkew)
 	}
 	skew := f.skew
-	o.Skew = &skew
+	in.Skew = &skew
+	for _, v := range f.jwks {
+		// The shape is the same for every format that takes issuer keys;
+		// what the keys must be is the adapter's to check.
+		if iss, loc, ok := strings.Cut(v, "="); !ok || iss == "" || loc == "" {
+			return in, fmt.Errorf("--jwks %q: want ISSUER=PATH or ISSUER=https://URL", v)
+		}
+	}
 	if cmd.Flags().Changed("audience") {
-		// An empty audience is never a resource server's identity: mandatum's
+		// An empty audience is never a party's identity: Mandatum's
 		// verifier refuses to be built with one. It is most often an unset
-		// variable in `--audience "$AUD"`, which deserves a usage error rather
-		// than a report about a chain checked against nothing.
+		// variable in `--audience "$AUD"`, which deserves a usage error
+		// rather than a report about a chain checked against nothing.
 		if strings.TrimSpace(f.audience) == "" {
-			return o, errors.New("--audience is empty; name the resource server the chain is presented to, or leave the flag out to skip V9")
+			return in, errors.New("--audience is empty; name the party the chain is presented to, or leave the flag out to skip the audience rule")
 		}
 		aud := f.audience
-		o.Audience = &aud
+		in.Audience = &aud
 	}
-
-	var sources []trust.Source
-	if f.trust != "" {
-		s, err := trust.ReadFile(f.trust)
-		if err != nil {
-			return o, err
-		}
-		sources = append(sources, s...)
-	}
-	for _, v := range f.jwks {
-		s, err := trust.ParseFlag(v)
-		if err != nil {
-			return o, err
-		}
-		sources = append(sources, s)
-	}
-	if len(sources) > 0 {
-		t, err := trust.Loader{}.Load(ctx, sources)
-		if err != nil {
-			return o, err
-		}
-		o.Trust = t
-	}
-
-	if f.revokedJTIs != "" && f.revocations == "" {
-		return o, errors.New("--revoked-jtis resolves hits in a revocation set; pass --revocations as well")
-	}
-	if f.revocations != "" {
-		data, err := os.ReadFile(f.revocations)
-		if err != nil {
-			return o, fmt.Errorf("reading revocation set: %w", err)
-		}
-		set, err := revoke.ParseSet(data)
-		if err != nil {
-			return o, fmt.Errorf("%s: %w", f.revocations, err)
-		}
-		if f.maxAge < 0 {
-			return o, fmt.Errorf("--max-age %s is negative; use 0 to accept any age", f.maxAge)
-		}
-		maxAge := f.maxAge
-		o.Revocation = &diagnose.Revocation{Set: set, Source: baseName(f.revocations), MaxAge: &maxAge}
-		if f.revokedJTIs != "" {
-			data, err := os.ReadFile(f.revokedJTIs)
-			if err != nil {
-				return o, fmt.Errorf("reading revoked jtis: %w", err)
-			}
-			list := diagnose.ExactList{}
-			for _, line := range strings.Split(string(data), "\n") {
-				if j := strings.TrimSpace(line); j != "" && !strings.HasPrefix(j, "#") {
-					list[j] = true
-				}
-			}
-			o.Revocation.Exact, o.Revocation.ExactSource = list, baseName(f.revokedJTIs)
-		}
-	}
-	return o, nil
+	return in, nil
 }
 
-func baseName(p string) string {
-	if i := strings.LastIndexAny(p, `/\`); i >= 0 {
-		return p[i+1:]
-	}
-	return p
-}
-
-// load reads the chain and the options, and diagnoses it.
-func (f *flags) load(cmd *cobra.Command, args []string, stdin io.Reader) (diagnose.Input, diagnose.Options, error) {
-	in, err := readChain(args, stdin)
+// load reads the chain, picks its format, and opens it with the inputs.
+func (f *flags) load(cmd *cobra.Command, reg *chain.Registry, args []string, stdin io.Reader) (chain.Session, string, error) {
+	data, source, err := readChain(args, stdin)
 	if err != nil {
-		return in, diagnose.Options{}, err
+		return nil, "", err
 	}
-	if f.reverse {
-		in.Links = diagnose.Reverse(in.Links)
-		in.Info.Reversed = true
+	// Flags first: a malformed flag is the person's to fix whatever the
+	// input turns out to be.
+	in, err := f.inputs(cmd, data, source)
+	if err != nil {
+		return nil, "", err
 	}
-	opts, err := f.options(cmd.Context(), cmd)
-	return in, opts, err
+	var a chain.Adapter
+	if f.format != "" {
+		a, err = reg.Lookup(f.format)
+	} else {
+		a, err = reg.Detect(data)
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	s, err := a.Open(cmd.Context(), in)
+	return s, source, err
 }
 
-// diagnoseFn is diagnose.Diagnose. It is a variable so a test can hand the
-// commands a report in which this tool and mandatum disagree, and check the
-// commands say so and exit 70; a real disagreement cannot be arranged.
-var diagnoseFn = diagnose.Diagnose
+// evaluateFn evaluates a session. It is a variable so a test can hand the
+// commands a chain in which an adapter and its reference implementation
+// disagree, and check the commands say so and exit 70; a real disagreement
+// cannot be arranged.
+var evaluateFn = func(ctx context.Context, s chain.Session, eo chain.EvalOptions) (*chain.Chain, error) {
+	return s.Evaluate(ctx, eo)
+}
 
-func diagnoseInput(ctx context.Context, in diagnose.Input, opts diagnose.Options) (*diagnose.Report, error) {
-	r, err := diagnoseFn(ctx, in.Links, opts)
-	if err != nil {
-		return nil, err
+// evaluate checks a session once, at the time it was opened for.
+func evaluate(ctx context.Context, s chain.Session) (*chain.Chain, error) {
+	at := s.Info().At
+	if at.IsZero() {
+		at = time.Now()
 	}
-	r.Input = in.Info
-	return r, nil
+	return evaluateFn(ctx, s, chain.EvalOptions{At: at})
 }

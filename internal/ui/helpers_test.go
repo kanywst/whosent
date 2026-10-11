@@ -11,19 +11,25 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/kanywst/whosent/internal/demo"
+	"github.com/kanywst/whosent/internal/formats/all"
+	"github.com/kanywst/whosent/internal/formats/fake"
 )
 
-// demoSessions mints every demo scenario at the fixed base time, so every
-// test sees the same chains, timestamps and verdicts.
+// demoSessions mints every registered format's demo scenarios at the fixed
+// base time, so every test sees the same chains, timestamps and verdicts,
+// plus the fake format's, which exist to give the view shapes no real
+// format has yet.
 func demoSessions(t *testing.T) []Session {
 	t.Helper()
 	var out []Session
-	for _, n := range demo.Names() {
-		s, err := demo.Build(n, demo.FixedBase)
+	scenarios := all.Registry().Scenarios()
+	scenarios = append(scenarios, fake.New().Scenarios()...)
+	for _, sc := range scenarios {
+		s, err := sc.Open(demo.FixedBase)
 		if err != nil {
-			t.Fatalf("minting %s: %v", n, err)
+			t.Fatalf("minting %s: %v", sc.Name, err)
 		}
-		out = append(out, Session{Name: s.Name, Title: s.Title, Summary: s.Summary, Links: s.Links, Options: s.Options})
+		out = append(out, Session{Name: sc.Name, Title: sc.Title, Summary: sc.Summary, Chain: s})
 	}
 	return out
 }

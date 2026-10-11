@@ -1,6 +1,6 @@
-.TH WHOSENT 1 "2026-10-10" "whosent manual" "User Commands"
+.TH WHOSENT 1 "2026-10-11" "whosent manual" "User Commands"
 .SH NAME
-whosent \- see who sent an agent, and what a delegation chain still lets it do
+whosent \- see who sent an agent: a viewer for JWT token exchange, Biscuit and Mandatum delegation chains
 .SH SYNOPSIS
 .B whosent
 [\fIOPTIONS\fR] [\fIFILE\fR | \fB\-\fR]
@@ -20,60 +20,96 @@ whosent \- see who sent an agent, and what a delegation chain still lets it do
 .B whosent version
 .SH DESCRIPTION
 .B whosent
-opens a Mandatum delegation chain in a terminal UI: a series of signed
-assertions running from an authenticated human sponsor down to the agent that
-is acting. It shows the human the chain is rooted in, how authority narrows at
-every hop, and where trust breaks.
+opens a delegation chain in a terminal UI and shows who it is rooted in, how
+authority narrows at every hop, and where trust breaks. It reads three
+formats:
+.TP
+.B jwt
+OAuth 2.0 token exchange (RFC 8693): a JWT whose nested \fBact\fR claims name
+who acted for its subject, including ID-JAG (\fBtyp: oauth-id-jag+jwt\fR),
+Txn-Tokens (\fBtyp: txntoken+jwt\fR) and Microsoft Entra agent tokens. One
+token's prior actors are the issuer's word (RFC 8693 section 4.1) and are drawn
+as
+.IR asserted ,
+never as verified. Several tokens from successive exchanges, oldest first, are
+checked hop by hop; those hop rules (J7 to J10) are whosent's own consistency
+checks, not a procedure any specification defines.
+.TP
+.B biscuit
+A Biscuit token: an authority block signed by a root key, then attenuation
+blocks that can only add checks. Signatures, third-party blocks, open and
+sealed proofs, and the token's Datalog checks are evaluated by whosent's own
+code, which agrees with the reference on all 38 tokens of the specification's
+sample corpus.
+.TP
+.B mandatum
+A Mandatum chain of signed links from a named human down to the acting agent.
+On every run whosent also hands the chain and the same answers to the Mandatum
+v0.2.0 reference verifier it embeds; if the two disagree, the reference verdict
+wins and the exit status is 70.
 .PP
-Every verification rule of the Mandatum specification, V1 to V9, is evaluated
-for every link. Unlike a verifier, which stops at the first failure, whosent
-reports all of them, and draws everything below the first broken link as
-unreached: no authority reaches it.
+Every rule of the format is evaluated for every link. Unlike a verifier, which
+stops at the first failure, whosent reports all of them, and draws everything
+below the first broken link as unreached: no authority reaches it.
 .PP
 A rule that needs an input you did not give is reported as
 .IR "not checked" ,
-never as passing. Signatures need keys (\fB\-\-trust\fR or \fB\-\-jwks\fR),
-revocation needs a published set (\fB\-\-revocations\fR), and the audience rule
-needs the resource server's identifier (\fB\-\-audience\fR). A chain is only
-reported
+never as passing: signatures need keys (\fB\-\-jwks\fR, \fB\-\-trust\fR or
+\fB\-\-root\-key\fR), the audience rule needs \fB\-\-audience\fR, Biscuit checks
+need an authorizer (\fB\-\-fact\fR, \fB\-\-authorizer\fR), and revocation needs a
+list or a set. A chain is only reported
 .B VALID
 when every rule was checked for every link and held.
-.PP
-On every run, whosent also hands the same chain and the same answers to the
-Mandatum v0.2.0 reference verifier it embeds. If the two disagree, the
-reference verdict wins, the
-disagreement is shown as an internal inconsistency, and the exit status is 70.
 .SH INPUT
 The chain is read from \fIFILE\fR, or from standard input when \fIFILE\fR is
-\fB\-\fR or standard input is a pipe. The format is recognised by its shape:
+\fB\-\fR or standard input is a pipe; the interactive view then reads keys from
+the terminal. The format is recognised from the input; \fB\-\-format\fR names it
+when the input could be more than one, and an input two formats could claim is
+refused rather than guessed at.
 .TP
-.B JSON array of strings
-The wire form: compact JWS serializations, sponsor first.
+.B JWT
+One compact JWS (a leading \fBBearer\fR prefix is dropped), or several, as a
+JSON array of strings or one per line, oldest first.
 .TP
-.B MCP tools/call request
-A JSON-RPC request whose \fBparams._meta\fR carries the chain under
-\fBio.github.kanywst.mandatum/chain\fR, read exactly as mandatum's MCP
-middleware reads it. The tool name and arguments are captured for \fBask\fR.
-Bare params, a bare \fB_meta\fR, and \fB{"chain": [...]}\fR are accepted too.
+.B Biscuit
+URL-safe base64, padded or not, with or without a \fBbiscuit:\fR prefix, or the
+raw protobuf bytes.
 .TP
-.B One serialization per line
-Blank lines and lines starting with \fB#\fR are skipped.
+.B Mandatum
+A JSON array of compact JWS strings, sponsor first; a JSON-RPC
+\fBtools/call\fR request whose \fBparams._meta\fR carries the chain under
+\fBio.github.kanywst.mandatum/chain\fR, read exactly as Mandatum v0.2.0's MCP
+middleware reads it; or one serialization per line, with blank lines and lines
+starting with \fB#\fR skipped.
 .PP
-Bytes inside a serialization are never altered, since a link commits to its
-parent by a digest over the parent's exact bytes. Input is limited to 1 MiB and
-64 links.
+Bytes inside a serialization are never altered. Input is limited to 1 MiB; a
+Mandatum chain to 64 links, a JWT bundle to 64 tokens and 64 nested actors, and
+a Biscuit token to 32 blocks of 256 KiB each.
 .SH COMMANDS
 .TP
 .B check
 Evaluate every rule for every link and print a report: the verdict, a rule grid
 per link, every finding, and how authority narrows at each hop. With
 \fB\-\-json\fR the report is printed as JSON (schema
-.BR whosent.report/v1 )
-and nothing else reaches standard output.
+.BR whosent.chain/v1 ,
+the same for every format) and nothing else reaches standard output; with
+\fB\-\-native\fR as well, the format's own report is printed instead
+(Mandatum's is
+.BR whosent.report/v1 ).
 .TP
 .B ask
-Check a request against the chain with mandatum's own matcher, at every link,
+Check a request against the chain with its format's own matcher, at every link,
 so you can see where authority for it ends, or where it appears from nowhere.
+Each format takes its own question: a JWT a scope (\fB\-\-scope\fR, used at
+\fB\-\-audience\fR); a Biscuit token a request its authorizer (\fB\-\-authorizer\fR,
+\fB\-\-fact\fR) runs over it, with \fB\-\-resource\-id\fR and \fB\-\-action\fR
+becoming resource(...) and operation(...) facts and \fB\-\-policy\fR replacing the
+authorizer's policies (which makes the answer at most CONDITIONAL); Mandatum a
+resource request (\fB\-\-resource\-id\fR, \fB\-\-action\fR,
+\fB\-\-resource\-type\fR, \fB\-\-tag\fR, \fB\-\-attr\fR).
+\fB\-\-field\fR \fIKEY\fR=\fIVALUE\fR sets any question field by name. A flag
+the format has no use for is refused, and nothing a question needs is filled in
+from a default.
 The answer is labelled
 .B AUTHORITATIVE
 (the chain verified with every input supplied),
@@ -86,23 +122,16 @@ claims). With \fB\-\-json\fR the answer is printed as schema
 .TP
 .B demo
 Mint example chains with throwaway keys and open them in the interactive view.
-With no \fISCENARIO\fR it tours them all. Each scenario brings its own keys,
-revocation set and audience, so the input options do not apply. With
-\fB\-\-emit\fR \fIDIR\fR it writes one scenario's files instead:
-.IR chain.json ,
-.IR jwks/ ,
-.IR trust.json ,
-.IR revocation.json ,
-.I revoked\-jtis.txt
-and a
+With no \fISCENARIO\fR it tours them all, every format in turn. Each scenario
+brings its own keys and inputs, so the input options do not apply. With
+\fB\-\-emit\fR \fIDIR\fR it writes one scenario's files instead and prints the
+\fBwhosent check\fR command that checks them, with a
 .I manifest.json
-holding the exact
-.B whosent check
-command and what it must report. Files are written 0600 through a temporary
-file and a rename, so a planted symbolic link is replaced rather than written
-through; a directory that is not empty is refused without \fB\-\-force\fR.
-Scenarios: healthy, widened, revoked, expired, spliced, custody, audience,
-retarget, forged, multifault, unchecked.
+naming the scenario and holding that command (a Mandatum scenario's also
+records what it must report). Files are written 0600 through a
+temporary file and a rename, so a planted symbolic link is replaced rather than
+written through; a directory that is not empty is refused without
+\fB\-\-force\fR. \fB\-\-list\fR prints every scenario with its format.
 .TP
 .B completion
 Print a completion script for \fBbash\fR, \fBzsh\fR, \fBfish\fR or
@@ -113,43 +142,72 @@ Print whosent's version and the version of the Mandatum reference verifier
 it embeds.
 .SH OPTIONS
 .TP
+.BI \-\-format " NAME"
+The chain's format, when the input could be more than one: \fBjwt\fR,
+\fBbiscuit\fR or \fBmandatum\fR.
+By default the format is recognised from the input, and an input two formats
+could claim is refused rather than guessed at.
+.TP
 .BI \-\-trust " FILE"
 A trust file mapping issuers to their key documents:
 .B {"issuers": {"ISSUER": {"jwks_file": "PATH"} | {"jwks_url": "https://..."}}}.
 A relative \fBjwks_file\fR is resolved against the trust file's directory.
 .TP
 .BI \-\-jwks " ISSUER=PATH|ISSUER=https://URL"
-One issuer's keys. Repeatable. Keys are read the way mandatum's JWKS resolver
-reads them: Ed25519 only, and a document it would refuse is refused here.
+One issuer's keys, for JWT and Mandatum chains. Repeatable. For a JWT, RSA, EC
+and Ed25519 keys are read (RS, PS, ES and EdDSA); encryption keys, symmetric
+keys and duplicate kids are skipped or refused. For a Mandatum chain, keys are
+read the way Mandatum's JWKS resolver reads them: Ed25519 only, and a document
+it would refuse is refused here.
 URLs must be https, including after any redirect; a fetch is capped at 1 MiB
 and 5 seconds. Issuers come only from these options, never from the chain, so
-a chain cannot make whosent fetch anything.
+a chain cannot make whosent fetch anything. A JWT's \fBjku\fR, \fBx5u\fR,
+\fBx5c\fR and \fBjwk\fR headers are not used.
+.TP
+.BI \-\-root\-key " KEY"
+A public key a Biscuit token may be rooted in, as hex
+(\fBed25519/\fR\fIHEX\fR or \fBsecp256r1/\fR\fIHEX\fR) or a file holding it.
+Repeatable. Without it, the authority block's signature is not checked; the
+later blocks are still verified against each other.
 .TP
 .BI \-\-revocations " FILE"
-A published compact revocation set (specification section 7.1).
+A published compact revocation set, for Mandatum chains (specification
+section 7.1).
 .TP
 .BI \-\-revoked\-jtis " FILE"
-An exact list of revoked jtis, one per line, used to resolve a hit in the
-revocation set's filter. Without it, a hit denies, as the specification says.
+A list of revoked identifiers, one per line. For a Biscuit token, block
+revocation ids: a block on the list is revoked. For a Mandatum chain, the exact
+jti list used to resolve a hit in the revocation set's filter; without it, a
+hit denies, as the specification says.
 .TP
 .BI \-\-max\-age " DURATION"
 The oldest revocation set accepted; \fB0\fR accepts any age. Default 24h. A
 stale set makes revocation unknown, which denies.
 .TP
 .BI \-\-audience " AUDIENCE"
-The resource server the chain is presented to; checks rule V9. An empty value
-is an error.
+The party the chain is presented to; checks rule J4 (JWT) or V9 (Mandatum).
+An empty value is an error.
+.TP
+.BI \-\-fact " FACT"
+A Datalog fact the authorizer supplies, such as \fBoperation("read")\fR, for
+evaluating a Biscuit token's checks. Repeatable.
+.TP
+.BI \-\-authorizer " FILE"
+A file of Biscuit authorizer Datalog (facts, checks and policies) to evaluate
+the token's checks against. Without it or \fB\-\-fact\fR, only expiry checks
+are evaluated, against the evaluation time.
 .TP
 .BI \-\-at " TIME"
 Evaluate at this time instead of now: RFC 3339, unix seconds, \fBnow\fR, or a
-relative offset such as \fB+25m\fR or \fB\-1h\fR. The revocation set's age is
-measured against this time too.
+relative offset such as \fB+25m\fR or \fB\-1h\fR. A Mandatum revocation set's
+age is measured against this time too, and a Biscuit token's checks see it as
+\fBtime(...)\fR unless the authorizer supplies its own.
 .TP
 .BI \-\-skew " DURATION"
 Clock skew tolerance, at most 5m. Default 30s.
 .TP
 .B \-\-reverse
-The chain was handed over leaf first; reverse it before checking. Without this,
+A Mandatum chain was handed over leaf first; reverse it before checking. Without this,
 a chain that looks reversed is reported, never silently reordered.
 .TP
 .B \-\-no\-motion
@@ -160,7 +218,11 @@ ASCII glyphs only. Also set by \fBWHOSENT_ASCII=1\fR.
 .SH CHECK OPTIONS
 .TP
 .B \-\-json
-Print the report as JSON (schema \fBwhosent.report/v1\fR).
+Print the report as JSON (schema \fBwhosent.chain/v1\fR).
+.TP
+.B \-\-native
+With \fB\-\-json\fR, print the format's own report instead (Mandatum's
+schema is \fBwhosent.report/v1\fR).
 .TP
 .B \-\-strict
 Treat INCOMPLETE as a failure (exit 1).
@@ -185,18 +247,99 @@ it parses, so \fBargs.n=3\fR is a number. Repeatable.
 .TP
 .B \-\-attr\-from\-args
 Map a tools/call request's arguments to \fBargs.\fR\fIname\fR attributes. This
-mapping is whosent's assumption, not something mandatum's enforcement point
-does, and a warning says so.
+mapping is whosent's assumption, not something an enforcement point does, and
+a warning says so.
 .TP
 .BI \-\-request " FILE"
 Read the request from a JSON file instead.
 .TP
+.BI \-\-scope " SCOPE"
+JWT: the scope to ask about. Required for a JWT question.
+.TP
+.BI \-\-policy " POLICIES"
+Biscuit: the allow and deny policies that decide, instead of the authorizer's
+own. The answer is then at most CONDITIONAL.
+.TP
+.BI \-\-field " KEY=VALUE"
+Set one of the format's question fields by name, such as
+\fBfacts=resource("orders"); operation("read")\fR for Biscuit. Repeatable.
+.TP
 .B \-\-json
-Print the answer as JSON (schema \fBwhosent.ask/v1\fR).
+Print the answer as JSON, in the format's own schema (\fBwhosent.ask/v1\fR for
+Mandatum).
 .TP
 .B \-\-strict
 Treat a CONDITIONAL answer as not permitted.
 .SH RULES
+.SS JWT
+.TP
+.B J1
+Token: a compact JWS with a JSON header and claims, signed with RS, PS, ES or
+EdDSA. \fBalg: none\fR, HMAC and unknown critical headers are refused.
+.TP
+.B J2
+Signature: verifies against the keys configured for the issuer the token names.
+.TP
+.B J3
+Time: \fBiat\fR, \fBnbf\fR and \fBexp\fR within the skew. The last token must
+hold now; an earlier one, when the next was issued.
+.TP
+.B J4
+Audience: the last token is addressed to \fB\-\-audience\fR.
+.TP
+.B J5
+Actor: the current actor is an object with a \fBsub\fR. A missing \fBiss\fR is
+a warning, a missing \fBsub_profile\fR a note.
+.TP
+.B J6
+may_act: an exchanged token's actor is the party the previous token's
+\fBmay_act\fR names.
+.TP
+.B J7
+Extends: an exchanged token's \fBact\fR chain is the previous one plus exactly
+one new actor.
+.TP
+.B J8
+Scope: an exchanged token's scope is a subset of the previous token's.
+.TP
+.B J9
+Subject: the subject does not change across an exchange.
+.TP
+.B J10
+Expiry: an exchanged token expires no later than the token it replaced.
+.PP
+J7 to J10 are whosent's consistency checks, derived from RFC 8693; no
+specification defines them as a verification procedure.
+.SS Biscuit
+.TP
+.B B1
+Format: the token and every block decode, and each next key is valid.
+.TP
+.B B2
+Version: the block's Datalog version is 3.0 to 3.3 and it uses only what that
+version allows.
+.TP
+.B B3
+Signature: each block's signature verifies. The authority block needs
+\fB\-\-root\-key\fR.
+.TP
+.B B4
+Third party: a third-party block's external signature verifies (v1).
+.TP
+.B B5
+Proof: an open token's secret matches the last next key, or a sealed token's
+seal verifies.
+.TP
+.B B6
+Symbols: the block's symbols and keys do not overlap earlier ones, and every
+reference resolves.
+.TP
+.B B7
+Checks: the authorizer's facts and policies satisfy the token's checks.
+.TP
+.B B8
+Revocation: no block's revocation id is on the \fB\-\-revoked\-jtis\fR list.
+.SS Mandatum
 .TP
 .B V1
 Structure: the link parses, is well formed, commits to its parent's digest, and
@@ -244,8 +387,8 @@ INCOMPLETE: nothing failed, but something was not checked. 1 with
 The command line or an input file is wrong.
 .TP
 .B 70
-whosent and mandatum disagree about the chain. This is a bug in whosent;
-please report it.
+whosent and a format's reference implementation (the embedded Mandatum
+verifier) disagree about the chain. This is a bug in whosent; please report it.
 .PP
 .B ask
 exits 0 when the request is permitted by a VALID chain, 1 when it is not
@@ -267,9 +410,10 @@ Scroll the link panel.
 Switch panel, when they do not fit side by side.
 .TP
 .B r
-The raw assertion: header, claims and digests. A parent digest takes the colour
-of the link it matches, so a spliced link is the one whose colour matches
-nothing.
+The raw link: a JWT's header and claims, a Biscuit block's Datalog and
+signature, a Mandatum assertion's claims and digests. In a Mandatum chain a
+parent digest takes the colour of the link it matches, so a spliced link is the
+one whose colour matches nothing.
 .TP
 .B space
 Replay authority flowing down the chain.
@@ -286,6 +430,7 @@ Back to the time the chain was opened at.
 .TP
 .B x
 Simulate revoking the selected link; again to undo. Nothing is revoked.
+Biscuit and Mandatum only: JWTs have no standard revocation.
 .TP
 .B X
 Clear every simulated revocation.
@@ -323,20 +468,20 @@ you configure.
 Take the tour:
 .B whosent demo
 .TP
-Write a scenario out and check it the way a script would:
-.B whosent demo \-\-emit fixture widened && cd fixture && whosent check chain.json \-\-trust trust.json \-\-revocations revocation.json \-\-audience https://mcp.example.org \-\-at 2026\-09\-12T08:01:00Z
+Open a token from your IdP against its key document:
+.B whosent token.jwt \-\-jwks https://idp.example.com=jwks.json \-\-audience https://api.example.com
 .TP
-Open a chain against your own keys:
-.B whosent chain.json \-\-trust trust.json \-\-revocations revocation.json \-\-audience https://mcp.example.org
+Check a bundle of exchanged tokens the way a script would:
+.B whosent demo \-\-emit fixture jwt\-bundle\-widened && cd fixture && whosent check tokens.json \-\-trust trust.json \-\-audience https://api.acme.example \-\-at 2026\-09\-12T08:01:00Z
 .TP
-Gate CI on a chain that fully verifies:
+Open a Biscuit token and run its checks for a read of orders:
+.B whosent token.b64 \-\-root\-key root.pub \-\-fact 'resource("orders")' \-\-fact 'operation("read")'
+.TP
+Gate CI on a Mandatum chain that fully verifies:
 .B whosent check chain.json \-\-trust trust.json \-\-revocations revocation.json \-\-audience https://mcp.example.org
 .TP
-Ask whether the leaf may fetch a page:
+Ask whether a Mandatum chain's leaf may fetch a page:
 .B whosent ask chain.json \-\-resource\-id web.fetch \-\-tag external\-content \-\-attr args.host=docs.example.org
-.TP
-Read the chain straight out of an MCP request:
-.B whosent ask call.json \-\-attr\-from\-args
 .SH AUTHOR
 Written by kanywst.
 .SH REPORTING BUGS
@@ -346,6 +491,11 @@ Report suspected vulnerabilities privately through GitHub Security Advisories
 rather than a public issue. See the security policy at
 https://github.com/kanywst/whosent/security/policy.
 .SH SEE ALSO
+RFC 8693, OAuth 2.0 Token Exchange: https://www.rfc\-editor.org/rfc/rfc8693.html
+.PP
+The Biscuit specification:
+https://github.com/eclipse\-biscuit/biscuit/blob/main/SPECIFICATIONS.md
+.PP
 The Mandatum Delegation Assertion specification:
 https://github.com/kanywst/whosent/blob/main/docs/mandatum\-spec.md
 .SH COPYRIGHT

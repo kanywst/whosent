@@ -61,6 +61,11 @@ test-json:
 # gate the number only ever drifts down, one untested branch at a time.
 COVERAGE_THRESHOLD ?= 85.0
 
+# Generated code is not counted: protoc writes it, and its getters and
+# reflection plumbing are exercised by the decoder's tests without each one
+# being worth a test of its own.
+COVERAGE_EXCLUDE ?= /internal/formats/biscuit/pb/
+
 .PHONY: test-coverage
 test-coverage:
 	go test -coverprofile=coverage.out -covermode=atomic ./...
@@ -79,7 +84,9 @@ check-coverage:
 	if [ -n "$$bad" ]; then \
 		echo "COVERAGE_THRESHOLD must be a number, got '$(COVERAGE_THRESHOLD)'" >&2; exit 1; \
 	fi; \
-	summary=$$(go tool cover -func=coverage.out) || { \
+	grep -v '$(COVERAGE_EXCLUDE)' coverage.out > coverage.gate.out || { \
+		echo "could not filter coverage.out" >&2; exit 1; }; \
+	summary=$$(go tool cover -func=coverage.gate.out) || { \
 		echo "go tool cover failed to read coverage.out" >&2; exit 1; }; \
 	total=$$(printf '%s\n' "$$summary" | awk '/^total:/ { sub(/%$$/, "", $$3); print $$3 }'); \
 	if [ -z "$$total" ]; then \
@@ -96,14 +103,22 @@ FUZZTIME ?= 30s
 
 .PHONY: fuzz
 fuzz:
-	go test ./pkg/diagnose -run '^$$' -fuzz FuzzGuard -fuzztime $(FUZZTIME)
-	go test ./internal/termsafe -run '^$$' -fuzz FuzzText -fuzztime $(FUZZTIME)
-	go test ./internal/termsafe -run '^$$' -fuzz FuzzJSON -fuzztime $(FUZZTIME)
+	go test ./pkg/diagnose -run '^$$' -fuzz '^FuzzGuard$$' -fuzztime $(FUZZTIME)
+	go test ./internal/termsafe -run '^$$' -fuzz '^FuzzText$$' -fuzztime $(FUZZTIME)
+	go test ./internal/termsafe -run '^$$' -fuzz '^FuzzJSON$$' -fuzztime $(FUZZTIME)
+	go test ./internal/formats/jwt -run '^$$' -fuzz '^FuzzParse$$' -fuzztime $(FUZZTIME)
+	go test ./internal/formats/biscuit -run '^$$' -fuzz '^FuzzAnalyze$$' -fuzztime $(FUZZTIME)
+	go test ./internal/formats/biscuit/datalog -run '^$$' -fuzz '^FuzzParseProgram$$' -fuzztime $(FUZZTIME)
+	go test ./internal/trust -run '^$$' -fuzz '^FuzzParseDocumentAgreesWithTheLibrary$$' -fuzztime $(FUZZTIME)
+	go test ./internal/mandatum/mda -run '^$$' -fuzz '^FuzzClaimsValidate$$' -fuzztime $(FUZZTIME)
+	go test ./internal/mandatum/jose -run '^$$' -fuzz '^FuzzParse$$' -fuzztime $(FUZZTIME)
+	go test ./internal/mandatum/verify -run '^$$' -fuzz '^FuzzVerify$$' -fuzztime $(FUZZTIME)
+	go test ./internal/mandatum/revoke -run '^$$' -fuzz '^FuzzParseSet$$' -fuzztime $(FUZZTIME)
 
 # Clean build artifacts
 .PHONY: clean
 clean:
-	rm -f $(BINARY_NAME) coverage.out
+	rm -f $(BINARY_NAME) coverage.out coverage.gate.out
 	rm -rf dist/
 	go clean
 

@@ -23,58 +23,67 @@ Type "clear"
 Enter
 Show
 
-# The tour opens on the healthy chain: authority flows from alice down to
-# the fetcher, one link at a time.
-Type "whosent demo --fixed"
+# A bundle of three exchanged JWTs: alice, then a chat UI, a planner and a
+# research agent. The last exchange gained a scope, and the chain breaks there.
+Type "whosent demo jwt-bundle-widened --fixed"
 Sleep 400ms
 Enter
-Sleep 2.5s
+Sleep 2.8s
 
-# Walk along the rail.
-Right
-Sleep 700ms
-Right
-Sleep 1.2s
-
-# Time mode: scrub forward until the leaf expires and the chain breaks.
-Type "t"
-Sleep 900ms
-Type "]"
-Sleep 1.2s
-Type "]"
-Sleep 1.6s
-Type "0"
-Sleep 600ms
-Escape
-Sleep 600ms
-
-# Simulate revoking the middle link: everything below it dies, nothing above.
+# Walk back along the rail to the hop that held.
 Left
-Sleep 600ms
-Type "x"
-Sleep 1.8s
-Type "x"
-Sleep 800ms
+Sleep 900ms
+Right
+Sleep 1.2s
 
-# Ask whether the chain would let its leaf fetch a page.
+# Ask whether the last token may write files: the scope that appeared from
+# nowhere. Selecting its row prefills the question.
+Down
+Sleep 700ms
 Type "a"
 Sleep 1.4s
 Enter
 Sleep 2.4s
 Escape
 Sleep 500ms
+Type "q"
+Sleep 400ms
 
-# The next scenario: authority that appeared from nowhere.
-Type "n"
+# A Biscuit token: blocks can only add checks. Scrub the clock until a block's
+# expiry check fails.
+Type "whosent demo biscuit-healthy --fixed"
+Sleep 400ms
+Enter
 Sleep 2.8s
+Type "t"
+Sleep 900ms
+Type "]"
+Sleep 1.2s
+Type "]"
+Sleep 1.2s
+Type "]"
+Sleep 1.6s
+Type "0"
+Sleep 500ms
+Escape
+Sleep 400ms
+Type "q"
+Sleep 400ms
 
-# And three faults at once, which the verifier alone reports one of.
-Type "p"
-Sleep 200ms
-Type "p"
-Sleep 200ms
-Type "p"
-Sleep 2.6s
+# A Mandatum chain with three faults, which a verifier alone reports one of.
+# Then simulate revoking the first link: everything below it dies.
+Type "whosent demo multifault --fixed"
+Sleep 400ms
+Enter
+Sleep 3s
+Left
+Sleep 300ms
+Left
+Sleep 600ms
+Type "x"
+Sleep 2s
+Type "x"
+Sleep 800ms
 
 Type "q"
 Sleep 300ms
