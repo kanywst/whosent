@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -608,7 +609,12 @@ func TestEmitWritesWhatTheCommandChecks(t *testing.T) {
 			t.Errorf("%s: a second emit into a full directory was accepted without force", def.name)
 		}
 		fi, err := os.Stat(filepath.Join(dir, "jwks"))
-		if err != nil || fi.Mode().Perm()&0o077 != 0 {
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Windows has no Unix permission bits: every directory reads as
+		// 0777 there, so the mode says nothing about what emit asked for.
+		if runtime.GOOS != "windows" && fi.Mode().Perm()&0o077 != 0 {
 			t.Errorf("%s: the key directory is %v", def.name, fi.Mode())
 		}
 	}
