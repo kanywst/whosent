@@ -1,6 +1,6 @@
 .TH WHOSENT 1 "2026-10-11" "whosent manual" "User Commands"
 .SH NAME
-whosent \- see who sent an agent: a viewer for JWT token exchange, Biscuit and Mandatum delegation chains
+whosent \- see who sent an agent: a viewer for JWT token exchange, Biscuit, UCAN and Mandatum delegation chains
 .SH SYNOPSIS
 .B whosent
 [\fIOPTIONS\fR] [\fIFILE\fR | \fB\-\fR]
@@ -42,6 +42,12 @@ sealed proofs, and the token's Datalog checks are evaluated by whosent's own
 code, which agrees with the reference on all 38 tokens of the specification's
 sample corpus.
 .TP
+.B ucan
+A UCAN 1.0 chain: delegations, each signed by its issuer's did:key and
+addressed to the next, ending in an invocation whose prf lists them from the
+subject's own. Everything is checked by whosent's own code, which agrees with
+the specification's 1.0.0 fixtures.
+.TP
 .B mandatum
 A Mandatum chain of signed links from a named human down to the acting agent.
 On every run whosent also hands the chain and the same answers to the Mandatum
@@ -75,6 +81,10 @@ JSON array of strings or one per line, oldest first.
 URL-safe base64, padded or not, with or without a \fBbiscuit:\fR prefix, or the
 raw protobuf bytes.
 .TP
+.B UCAN
+A container (ucan-wg/container v0.1.0, any of its six headers), a JSON array
+of base64 tokens, or base64 tokens one per line.
+.TP
 .B Mandatum
 A JSON array of compact JWS strings, sponsor first; a JSON-RPC
 \fBtools/call\fR request whose \fBparams._meta\fR carries the chain under
@@ -84,7 +94,7 @@ starting with \fB#\fR skipped.
 .PP
 Bytes inside a serialization are never altered. Input is limited to 1 MiB; a
 Mandatum chain to 64 links, a JWT bundle to 64 tokens and 64 nested actors, and
-a Biscuit token to 32 blocks of 256 KiB each.
+a Biscuit token to 32 blocks of 256 KiB each; a UCAN chain to 64 tokens.
 .SH COMMANDS
 .TP
 .B check
@@ -104,7 +114,9 @@ Each format takes its own question: a JWT a scope (\fB\-\-scope\fR, used at
 \fB\-\-audience\fR); a Biscuit token a request its authorizer (\fB\-\-authorizer\fR,
 \fB\-\-fact\fR) runs over it, with \fB\-\-resource\-id\fR and \fB\-\-action\fR
 becoming resource(...) and operation(...) facts and \fB\-\-policy\fR replacing the
-authorizer's policies (which makes the answer at most CONDITIONAL); Mandatum a
+authorizer's policies (which makes the answer at most CONDITIONAL); a UCAN chain
+a command (\fB\-\-action\fR) and its arguments (\fB\-\-field\fR
+args=\fIJSON\fR); Mandatum a
 resource request (\fB\-\-resource\-id\fR, \fB\-\-action\fR,
 \fB\-\-resource\-type\fR, \fB\-\-tag\fR, \fB\-\-attr\fR).
 \fB\-\-field\fR \fIKEY\fR=\fIVALUE\fR sets any question field by name. A flag
@@ -144,7 +156,7 @@ it embeds.
 .TP
 .BI \-\-format " NAME"
 The chain's format, when the input could be more than one: \fBjwt\fR,
-\fBbiscuit\fR or \fBmandatum\fR.
+\fBbiscuit\fR, \fBucan\fR or \fBmandatum\fR.
 By default the format is recognised from the input, and an input two formats
 could claim is refused rather than guessed at.
 .TP
@@ -176,7 +188,8 @@ section 7.1).
 .TP
 .BI \-\-revoked\-jtis " FILE"
 A list of revoked identifiers, one per line. For a Biscuit token, block
-revocation ids: a block on the list is revoked. For a Mandatum chain, the exact
+revocation ids: a block on the list is revoked. For a UCAN chain, delegation
+CIDs, in base58btc (z...) or base32 (b...). For a Mandatum chain, the exact
 jti list used to resolve a hit in the revocation set's filter; without it, a
 hit denies, as the specification says.
 .TP
@@ -339,6 +352,39 @@ Checks: the authorizer's facts and policies satisfy the token's checks.
 .TP
 .B B8
 Revocation: no block's revocation id is on the \fB\-\-revoked\-jtis\fR list.
+.SS UCAN
+.TP
+.B U1
+Envelope: canonical DAG-CBOR with a varsig header and a well-formed
+ucan/dlg@1.0.0 or ucan/inv@1.0.0 payload.
+.TP
+.B U2
+Signature: the signature verifies against the issuer's did:key (Ed25519,
+P-256, secp256k1).
+.TP
+.B U3
+Time: nbf and exp hold at the evaluation time, within the skew.
+.TP
+.B U4
+Principals: the first delegation is issued by its subject, and each token by
+the audience of the delegation above it.
+.TP
+.B U5
+Subject: every token is about the same subject; a powerline may not be the
+root.
+.TP
+.B U6
+Command: each command is the one above it or nested under it.
+.TP
+.B U7
+Policy: the invocation's arguments satisfy every delegation's policy.
+.TP
+.B U8
+Proofs: every proof the invocation names is supplied, or the invoker is the
+subject.
+.TP
+.B U9
+Revocation: no delegation's CID is on the \fB\-\-revoked\-jtis\fR list.
 .SS Mandatum
 .TP
 .B V1
@@ -430,7 +476,7 @@ Back to the time the chain was opened at.
 .TP
 .B x
 Simulate revoking the selected link; again to undo. Nothing is revoked.
-Biscuit and Mandatum only: JWTs have no standard revocation.
+Biscuit, UCAN and Mandatum only: JWTs have no standard revocation.
 .TP
 .B X
 Clear every simulated revocation.
@@ -495,6 +541,8 @@ RFC 8693, OAuth 2.0 Token Exchange: https://www.rfc\-editor.org/rfc/rfc8693.html
 .PP
 The Biscuit specification:
 https://github.com/eclipse\-biscuit/biscuit/blob/main/SPECIFICATIONS.md
+.PP
+The UCAN specification: https://github.com/ucan\-wg/spec
 .PP
 The Mandatum Delegation Assertion specification:
 https://github.com/kanywst/whosent/blob/main/docs/mandatum\-spec.md

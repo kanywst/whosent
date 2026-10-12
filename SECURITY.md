@@ -32,7 +32,7 @@ What to expect:
 
 In scope:
 
-- whosent reporting a chain as VALID, or a request as PERMITTED, that the format's own rules deny: a JWT with a bad signature, an expired token or a wrong audience; a Biscuit token whose signatures, proof or checks fail, or that the reference implementation would refuse; a Mandatum chain the embedded reference verifier would deny. Exit codes are a contract scripts depend on
+- whosent reporting a chain as VALID, or a request as PERMITTED, that the format's own rules deny: a JWT with a bad signature, an expired token or a wrong audience; a Biscuit token whose signatures, proof or checks fail, or that the reference implementation would refuse; a UCAN chain whose signatures, alignment, command, policy or time bounds fail, or that the specification's fixtures say must be refused; a Mandatum chain the embedded reference verifier would deny. Exit codes are a contract scripts depend on
 - A prior JWT actor, which only the issuer asserts, being shown or exported as verified
 - Key material being taken from a token (`jku`, `x5u`, `x5c`, `jwk`) instead of from your flags or trust file
 - A bug in the embedded Mandatum reference verifier (`internal/mandatum`) that accepts what the specification forbids. mandatum is archived, so whosent is where it gets fixed
