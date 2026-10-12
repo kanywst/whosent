@@ -108,6 +108,10 @@ type AskStep struct {
 
 // AskResult answers a question.
 type AskResult struct {
+	// Inconsistency is set when the format's reference implementation and
+	// whosent's own reading answer the question differently; ask exits 70.
+	Inconsistency *Inconsistency
+
 	// Request is the question, restated, one line per entry.
 	Request []string
 	// Verdict is one or two words: "PERMITTED", "DENIED", "PERMITTED IF".

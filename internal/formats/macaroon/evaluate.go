@@ -507,10 +507,8 @@ func (e *evaluation) verdict(c *chain.Chain) {
 		c.IncompleteReason = strings.Join(why, ", ")
 	default:
 		c.Verdict = chain.VerdictValid
-		if e.s.b.dialect == "fly" {
-			if e.flyRestrictions > 0 {
-				c.ValidScope = fmt.Sprintf("the token verifies, but no request was tested against its %d restricting caveat(s); ask tests one", e.flyRestrictions)
-			}
+		if e.s.b.dialect == "fly" && e.flyRestrictions > 0 {
+			c.ValidScope = fmt.Sprintf("the token verifies, but no request was tested against its %d restricting caveat(s); ask tests one", e.flyRestrictions)
 			c.Headline = fmt.Sprintf("The Fly.io token holds. No request was tested: its caveats (%d) limit requests, and ask tests one.",
 				e.flyRestrictions)
 			return

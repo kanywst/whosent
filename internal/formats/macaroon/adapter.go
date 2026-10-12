@@ -185,6 +185,9 @@ type session struct {
 	// refuse, set only by tests, replaces the reference implementation's
 	// verdict to prove a disagreement is reported.
 	refuse func() error
+	// askRefuse, set only by tests, replaces the library's answer to a
+	// question, to prove a disagreement is reported.
+	askRefuse func() error
 }
 
 func (s *session) Info() chain.Info { return chain.Info{Format: format, At: s.at} }

@@ -114,6 +114,10 @@ use is refused, and nothing a question needs is filled in from a default.`,
 				printer(stderr)("whosent: internal inconsistency: %s\n", c.Inconsistency.Detail)
 				return exitError{ExitInconsistent}
 			}
+			if res.Inconsistency != nil {
+				printer(stderr)("whosent: internal inconsistency: %s\n", res.Inconsistency.Detail)
+				return exitError{ExitInconsistent}
+			}
 			switch {
 			case res.Permitted && !res.Conditional:
 				return exitError{ExitValid}

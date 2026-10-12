@@ -564,3 +564,19 @@ func TestAgree(t *testing.T) {
 		t.Error("a disagreement went unnoticed")
 	}
 }
+
+// When the library and the caveat-by-caveat reading answer differently,
+// the request is refused and the answer carries an inconsistency, which
+// makes ask exit 70.
+func TestAskReportsADisagreementWithTheLibrary(t *testing.T) {
+	s := open(t, "macaroon-fly")
+	s.askRefuse = func() error { return errors.New("refused by the stand-in") }
+	c := evaluate(t, s, time.Minute)
+	res, err := s.Ask(context.Background(), c, map[string]string{askOrg: "4242", askAction: "r", askApp: "123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Inconsistency == nil || res.Permitted {
+		t.Errorf("a disagreement went unreported: %s, %+v", res.Verdict, res.Inconsistency)
+	}
+}

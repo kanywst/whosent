@@ -157,12 +157,19 @@ func (s *session) askFly(c *chain.Chain, values map[string]string) (*chain.AskRe
 	if verr != nil {
 		res.Reason = verr.Error()
 	}
+	if s.askRefuse != nil {
+		verr = s.askRefuse()
+	}
 	ok := verr == nil
 	if !agree(verr, res.Steps) {
 		// The library's answer and the caveat-by-caveat reading differ:
 		// say so, and let the refusal stand.
 		ok = false
 		res.Warning = "superfly/macaroon's access check and the caveat-by-caveat reading disagree; the request is treated as refused"
+		res.Inconsistency = &chain.Inconsistency{
+			Banner: "INTERNAL INCONSISTENCY: superfly/macaroon and whosent answer this request differently",
+			Detail: fmt.Sprintf("superfly/macaroon says %v, the caveats one by one say otherwise", verr),
+		}
 		if res.Reason == "" {
 			res.Reason = "the caveat-by-caveat reading refuses it"
 		}
