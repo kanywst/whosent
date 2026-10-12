@@ -5,9 +5,8 @@ name: Claude review
 # check.
 #
 # The action refuses to run when this file differs from the copy on the default
-# branch, so a pull request cannot rewrite its own reviewer. The cost is that
-# any change to this file, including the one that added it, goes unreviewed by
-# Claude until it is merged.
+# branch, so a pull request cannot rewrite its own reviewer. Such a pull request
+# fails this job with a comment saying it needs a human review.
 
 on:
   pull_request:
@@ -65,11 +64,31 @@ jobs:
             exit 1
           fi
 
+      # The action skips, and still reports success, when this file differs
+      # from the default branch's copy. A green check would then say the pull
+      # request was reviewed when it was not, so say so on it and fail.
+      - name: Refuse to look reviewed when the reviewer cannot run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if git diff --quiet "$BASE" "$HEAD" -- .github/workflows/claude-review.yml; then
+            exit 0
+          fi
+          gh pr comment "$PR" -R "$GITHUB_REPOSITORY" --edit-last --create-if-none \
+            --body "This pull request changes .github/workflows/claude-review.yml, so the Claude review cannot run on it. It needs a human review."
+          echo "::error::the Claude review cannot run on a pull request that changes its own workflow; review it by hand"
+          exit 1
+
       - uses: anthropics/claude-code-action@1d6de8cb0c237e7c15e9e1bdf973826ebae490cc # v1
         with:
           # A subscription token, not an API key: runs against the Claude plan
           # instead of API credits. Generate it with `claude setup-token`.
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Comments carry no Claude attribution line.
+          settings: '{"attribution": {"commit": "", "pr": ""}, "includeCoAuthoredBy": false}'
           prompt: |
             REPO: ${{ github.repository }}
             PR: ${{ github.event.pull_request.number }}
@@ -119,6 +138,9 @@ jobs:
             underneath it. Be specific and cite
             `file:line`. If the diff is clean against all of the above, say so
             in one line rather than manufacturing nits.
+
+            Write in English. Do not add a footer, a signature or a "Generated
+            with" line to any comment.
 
           claude_args: |
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
