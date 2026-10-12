@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Built with Bubble Tea](https://img.shields.io/badge/Built%20with-Bubble%20Tea-B7A0E8.svg)](https://github.com/charmbracelet/bubbletea)
 
-Who sent this agent? A terminal viewer for delegation chains: OAuth token exchange (RFC 8693 `act`, ID-JAG, Txn-Token, Entra agent tokens), [Biscuit](https://www.biscuitsec.org), and Mandatum. It shows the human at the root, how authority narrows hop by hop, and exactly where trust breaks.
+Who sent this agent? A terminal viewer for delegation chains: OAuth token exchange (RFC 8693 `act`, ID-JAG, Txn-Token, Entra agent tokens), [Biscuit](https://www.biscuitsec.org), Mandatum and macaroons. It shows the human at the root, how authority narrows hop by hop, and exactly where trust breaks.
 
 ![whosent demo](demo.gif)
 
@@ -46,7 +46,7 @@ Without keys the chain still opens. The rules that need them are shown as not ch
 
 ## Formats
 
-The format is recognised from the input. `--format jwt|biscuit|mandatum` says it when the input could be more than one.
+The format is recognised from the input. `--format jwt|biscuit|mandatum|macaroon` says it when the input could be more than one.
 
 ### JWT token exchange
 
@@ -115,6 +115,21 @@ Every diagnosis also runs the Mandatum v0.2.0 reference verifier, embedded uncha
 | V9 | the leaf is addressed to this resource server |
 
 A Mandatum chain is read as a JSON array of compact JWS strings, as an MCP `tools/call` request carrying it in `params._meta["io.github.kanywst.mandatum/chain"]`, or one serialization per line.
+
+### Macaroons
+
+A macaroon is minted from a root key only its issuer holds, and every caveat appended narrows it. whosent draws one link per caveat, and a third-party caveat's discharge macaroon under the caveat it answers. It reads the libmacaroons formats (binary v1 and v2, base64 or raw, and their JSON) with a root and its discharges back to back, and Fly.io tokens (`FlyV1 fm2_...`).
+
+The chain is one HMAC: without `--root-key` every caveat reads but none is vouched for, and with it a tampered macaroon fails as a whole, since an HMAC cannot say which caveat changed. Predicates are the application's own, so whosent judges only time caveats and the exact predicates you give with `--fact`, as libmacaroons' `satisfy_exact` does. Verification is whosent's own code, compared on every run with [go-macaroon](https://github.com/go-macaroon/macaroon) or [superfly/macaroon](https://github.com/superfly/macaroon); a disagreement exits 70. libmacaroons' own verifier tests are in the test corpus.
+
+| Rule | Checks |
+| :--: | :--- |
+| M1 | the macaroons decode; a Fly.io attestation appears only in a proof |
+| M2 | the HMAC chain matches under `--root-key`; a discharge's, bound to its root |
+| M3 | every third-party caveat has its discharge, used once, and no discharge is left over |
+| M4 | the caveat's sealed key opens under the chain; a Fly.io discharge is bound to its token |
+| M5 | time caveats (`time < T`, `time-before T`, Fly.io `ValidityWindow`) hold at the evaluation time |
+| M6 | first-party predicates are among the `--fact` predicates; without `--fact` they are not checked |
 
 ## Checking from a script
 
@@ -224,9 +239,9 @@ From a script, `whosent ask` asks the same question and exits 0 only when a VALI
 | :--- | :--- | :--- |
 | `--jwks ISSUER=PATH` or `ISSUER=https://URL` | JWT, Mandatum | an issuer's key document; repeatable |
 | `--trust FILE` | JWT, Mandatum | a file mapping issuers to key documents (below) |
-| `--root-key KEY` | Biscuit | a root public key, as hex (`ed25519/...`, `secp256r1/...`) or a file; repeatable |
+| `--root-key KEY` | Biscuit, Macaroon | Biscuit: a root public key, as hex (`ed25519/...`, `secp256r1/...`) or a file; repeatable. Macaroon: the root key, as hex, `text:SECRET` or a file |
 | `--audience AUD` | JWT, Mandatum | the party the chain is presented to |
-| `--fact FACT`, `--authorizer FILE` | Biscuit | the authorizer's facts and policies the token's checks run against |
+| `--fact FACT`, `--authorizer FILE` | Biscuit, Macaroon | Biscuit: the authorizer's facts and policies the token's checks run against. Macaroon: `--fact` names a predicate the verifier satisfies |
 | `--revocations FILE` | Mandatum | a published revocation set |
 | `--revoked-jtis FILE` | Biscuit, Mandatum | for Biscuit, revoked block revocation ids, one per line; for Mandatum, the exact jti list that resolves a hit in the revocation set's filter |
 | `--at TIME` | all | evaluate at another time: RFC 3339, unix seconds, or `+25m` / `-1h` |
@@ -275,7 +290,7 @@ Time mode and the revocation simulation re-run the whole diagnosis, so what you 
 
 - Every string that comes from a chain, a key document or a library error is escaped before it reaches the terminal. Control characters, escape sequences and bidi overrides are shown as visible escapes, so a chain cannot clear the screen, print a fake verdict, write your clipboard over OSC 52, or disguise a name. `--json` output is escaped the same way.
 - whosent touches the network only to fetch key documents from the https URLs you configure. Which keys belong to which issuer comes from your flags or trust file, never from the chain: a JWT's `jku`, `x5u`, `x5c` and `jwk` headers are not used. Fetches must stay on https through any redirect, and are capped at 1 MiB and 5 seconds.
-- Input is capped at 1 MiB. A Mandatum chain is read to at most 64 links, a JWT bundle to 64 tokens and 64 nested actors, a Biscuit token to 32 blocks of 256 KiB.
+- Input is capped at 1 MiB. A Mandatum chain is read to at most 64 links, a JWT bundle to 64 tokens and 64 nested actors, a Biscuit token to 32 blocks of 256 KiB, a macaroon input to 16 macaroons of 128 caveats.
 
 Report a vulnerability through a [private advisory](https://github.com/kanywst/whosent/security/advisories/new). See [SECURITY.md](SECURITY.md).
 
@@ -283,6 +298,7 @@ Report a vulnerability through a [private advisory](https://github.com/kanywst/w
 
 - [mandatum](https://github.com/kanywst/mandatum) is the Mandatum specification and its reference Go library, now archived. whosent embeds the v0.2.0 verifier, attenuation rules and matcher in [`internal/mandatum`](internal/mandatum) rather than reimplementing them, and carries a copy of the [specification](docs/mandatum-spec.md).
 - [biscuit-cli](https://github.com/eclipse-biscuit/biscuit-cli) creates, attenuates and inspects Biscuit tokens; its `inspect` prints each block. whosent's Biscuit test corpus is the specification's own [samples](https://github.com/eclipse-biscuit/biscuit/tree/main/samples/current), vendored with their license.
+- [libmacaroons](https://github.com/rescrv/libmacaroons) defines the binary formats; its verifier tests are vendored with their license. Fly.io tokens are read with [superfly/macaroon](https://github.com/superfly/macaroon), the code Fly.io verifies them with.
 - [y509](https://github.com/kanywst/y509) does the same job for X.509 certificate chains.
 
 ## Development

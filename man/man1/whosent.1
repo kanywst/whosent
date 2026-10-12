@@ -1,6 +1,6 @@
 .TH WHOSENT 1 "2026-10-11" "whosent manual" "User Commands"
 .SH NAME
-whosent \- see who sent an agent: a viewer for JWT token exchange, Biscuit and Mandatum delegation chains
+whosent \- see who sent an agent: a viewer for JWT token exchange, Biscuit, Mandatum and macaroon delegation chains
 .SH SYNOPSIS
 .B whosent
 [\fIOPTIONS\fR] [\fIFILE\fR | \fB\-\fR]
@@ -47,6 +47,12 @@ A Mandatum chain of signed links from a named human down to the acting agent.
 On every run whosent also hands the chain and the same answers to the Mandatum
 v0.2.0 reference verifier it embeds; if the two disagree, the reference verdict
 wins and the exit status is 70.
+.TP
+.B macaroon
+A macaroon and its discharges, in the libmacaroons formats or as a Fly.io
+token. One HMAC chain covers every caveat: without \fB\-\-root\-key\fR none is
+vouched for. whosent checks it with its own code and compares the verdict with
+go-macaroon or superfly/macaroon on every run; a disagreement exits 70.
 .PP
 Every rule of the format is evaluated for every link. Unlike a verifier, which
 stops at the first failure, whosent reports all of them, and draws everything
@@ -56,7 +62,8 @@ A rule that needs an input you did not give is reported as
 .IR "not checked" ,
 never as passing: signatures need keys (\fB\-\-jwks\fR, \fB\-\-trust\fR or
 \fB\-\-root\-key\fR), the audience rule needs \fB\-\-audience\fR, Biscuit checks
-need an authorizer (\fB\-\-fact\fR, \fB\-\-authorizer\fR), and revocation needs a
+need an authorizer (\fB\-\-fact\fR, \fB\-\-authorizer\fR), macaroon predicates
+need \fB\-\-fact\fR, and revocation needs a
 list or a set. A chain is only reported
 .B VALID
 when every rule was checked for every link and held.
@@ -81,10 +88,16 @@ A JSON array of compact JWS strings, sponsor first; a JSON-RPC
 \fBio.github.kanywst.mandatum/chain\fR, read exactly as Mandatum v0.2.0's MCP
 middleware reads it; or one serialization per line, with blank lines and lines
 starting with \fB#\fR skipped.
+.TP
+.B Macaroon
+libmacaroons binary v1 or v2, raw or base64 in any alphabet, a root and its
+discharges back to back or separated by whitespace or commas; their JSON, one
+object or an array; or a Fly.io token (\fBFlyV1 fm2_...\fR, comma-joined).
 .PP
 Bytes inside a serialization are never altered. Input is limited to 1 MiB; a
 Mandatum chain to 64 links, a JWT bundle to 64 tokens and 64 nested actors, and
-a Biscuit token to 32 blocks of 256 KiB each.
+a Biscuit token to 32 blocks of 256 KiB each, and a macaroon input to 16
+macaroons of 128 caveats.
 .SH COMMANDS
 .TP
 .B check
@@ -168,7 +181,8 @@ a chain cannot make whosent fetch anything. A JWT's \fBjku\fR, \fBx5u\fR,
 A public key a Biscuit token may be rooted in, as hex
 (\fBed25519/\fR\fIHEX\fR or \fBsecp256r1/\fR\fIHEX\fR) or a file holding it.
 Repeatable. Without it, the authority block's signature is not checked; the
-later blocks are still verified against each other.
+later blocks are still verified against each other. For a macaroon, the root
+key itself (a Fly.io signing key), as hex, \fBtext:\fR\fISECRET\fR, or a file.
 .TP
 .BI \-\-revocations " FILE"
 A published compact revocation set, for Mandatum chains (specification
@@ -190,7 +204,8 @@ An empty value is an error.
 .TP
 .BI \-\-fact " FACT"
 A Datalog fact the authorizer supplies, such as \fBoperation("read")\fR, for
-evaluating a Biscuit token's checks. Repeatable.
+evaluating a Biscuit token's checks. For a macaroon, a predicate the verifier
+satisfies exactly, such as \fBaccount = 3735928559\fR. Repeatable.
 .TP
 .BI \-\-authorizer " FILE"
 A file of Biscuit authorizer Datalog (facts, checks and policies) to evaluate
@@ -339,6 +354,28 @@ Checks: the authorizer's facts and policies satisfy the token's checks.
 .TP
 .B B8
 Revocation: no block's revocation id is on the \fB\-\-revoked\-jtis\fR list.
+.SS Macaroon
+.TP
+.B M1
+Format: the macaroons decode; a Fly.io attestation appears only in a proof.
+.TP
+.B M2
+Signature: the HMAC chain matches under \fB\-\-root\-key\fR; a discharge's,
+bound to its root.
+.TP
+.B M3
+Discharge: every third-party caveat has its discharge, used once, and none is
+left over.
+.TP
+.B M4
+Binding: the caveat's sealed key opens under the chain; a Fly.io discharge is
+bound to its token.
+.TP
+.B M5
+Time: time caveats hold at the evaluation time.
+.TP
+.B M6
+Caveat: first-party predicates are among the \fB\-\-fact\fR predicates.
 .SS Mandatum
 .TP
 .B V1
@@ -477,6 +514,9 @@ Check a bundle of exchanged tokens the way a script would:
 Open a Biscuit token and run its checks for a read of orders:
 .B whosent token.b64 \-\-root\-key root.pub \-\-fact 'resource("orders")' \-\-fact 'operation("read")'
 .TP
+Check a macaroon against its root key and the predicates a verifier satisfies:
+.B whosent check token.txt \-\-root\-key root.key \-\-fact 'account = 3735928559'
+.TP
 Gate CI on a Mandatum chain that fully verifies:
 .B whosent check chain.json \-\-trust trust.json \-\-revocations revocation.json \-\-audience https://mcp.example.org
 .TP
@@ -495,6 +535,9 @@ RFC 8693, OAuth 2.0 Token Exchange: https://www.rfc\-editor.org/rfc/rfc8693.html
 .PP
 The Biscuit specification:
 https://github.com/eclipse\-biscuit/biscuit/blob/main/SPECIFICATIONS.md
+.PP
+Macaroons: Cookies with Contextual Caveats for Decentralized Authorization in
+the Cloud (NDSS 2014); libmacaroons: https://github.com/rescrv/libmacaroons
 .PP
 The Mandatum Delegation Assertion specification:
 https://github.com/kanywst/whosent/blob/main/docs/mandatum\-spec.md
