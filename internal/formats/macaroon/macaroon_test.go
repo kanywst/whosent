@@ -535,3 +535,32 @@ func TestAskJudgesPredicatesAsAVerifierWould(t *testing.T) {
 		t.Errorf("with no predicates: %s", res.Verdict)
 	}
 }
+
+// A token that does not verify under the given key permits nothing, even a
+// request its caveats would allow.
+func TestAskWithAWrongKeyIsHypothetical(t *testing.T) {
+	s := open(t, "macaroon-fly")
+	s.key = []byte("not the signing key")
+	c := evaluate(t, s, time.Minute)
+	if c.Verdict != chain.VerdictInvalid {
+		t.Fatalf("a wrong key gives %s", c.Verdict)
+	}
+	res, err := s.Ask(context.Background(), c, map[string]string{askOrg: "4242", askAction: "r", askApp: "123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Verdict != "DENIED" || res.Authority != "HYPOTHETICAL" {
+		t.Errorf("%s (%s)", res.Verdict, res.Authority)
+	}
+}
+
+func TestAgree(t *testing.T) {
+	refuse := []chain.AskStep{{Outcome: chain.OutcomeCovers}, {Outcome: chain.OutcomeRefuses}}
+	cover := []chain.AskStep{{Outcome: chain.OutcomeCovers}}
+	switch {
+	case !agree(nil, cover), !agree(errors.New("no"), refuse):
+		t.Error("matching answers reported as a disagreement")
+	case agree(nil, refuse), agree(errors.New("no"), cover):
+		t.Error("a disagreement went unnoticed")
+	}
+}

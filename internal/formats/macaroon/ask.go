@@ -157,8 +157,18 @@ func (s *session) askFly(c *chain.Chain, values map[string]string) (*chain.AskRe
 	if verr != nil {
 		res.Reason = verr.Error()
 	}
-	settle(res, c, verr == nil, "Fly.io's access check allows it, and the token verifies")
-	if !verified && s.key != nil {
+	ok := verr == nil
+	if !agree(verr, res.Steps) {
+		// The library's answer and the caveat-by-caveat reading differ:
+		// say so, and let the refusal stand.
+		ok = false
+		res.Warning = "superfly/macaroon's access check and the caveat-by-caveat reading disagree; the request is treated as refused"
+		if res.Reason == "" {
+			res.Reason = "the caveat-by-caveat reading refuses it"
+		}
+	}
+	settle(res, c, ok, "Fly.io's access check allows it, and the token verifies")
+	if !verified && s.key != nil && res.Warning == "" {
 		res.Warning = "the token does not verify, so its caveats were read without being vouched for"
 	}
 	report(res, c, "allows", "refuses")
@@ -170,6 +180,17 @@ func (s *session) askFly(c *chain.Chain, values map[string]string) (*chain.AskRe
 		Reason    string            `json:"reason,omitempty"`
 	}{"whosent.macaroon.ask/v1", values, res.Authority, res.Permitted, res.Reason}
 	return res, nil
+}
+
+// agree reports whether the library's verdict on a request matches the
+// steps: a refusal from Validate needs a caveat that refuses, and the other
+// way round.
+func agree(verr error, steps []chain.AskStep) bool {
+	refused := false
+	for _, st := range steps {
+		refused = refused || st.Outcome == chain.OutcomeRefuses
+	}
+	return (verr != nil) == refused
 }
 
 // flyAccess reads the form into a Fly.io access, refusing what Fly.io's
