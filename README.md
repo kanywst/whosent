@@ -153,7 +153,7 @@ The chain is one HMAC: without `--root-key` every caveat reads but none is vouch
 | M3 | every third-party caveat has its discharge, used once, and no discharge is left over |
 | M4 | the caveat's sealed key opens under the chain; a Fly.io discharge is bound to its token |
 | M5 | time caveats (`time < T`, `time-before T`, Fly.io `ValidityWindow`) hold at the evaluation time |
-| M6 | first-party predicates are among the `--fact` predicates; without `--fact` they are not checked |
+| M6 | first-party predicates are among the `--fact` predicates; without `--fact` they are not checked. A Fly.io caveat restricts the request instead of the token, so it is the token's authority, not a check, and `ask` tests a request against it |
 
 ## Checking from a script
 
@@ -245,7 +245,7 @@ How authority narrows
 
 ### Asking about one request
 
-In the interactive view, `a` asks whether the chain would permit a request, in that format's terms: a scope and an audience for a JWT, facts and a policy for Biscuit, a command and its arguments for UCAN, an action on a resource for Mandatum. The answer is traced link by link, so you see where authority for it ends or where it appeared from nowhere, and it says how far it can be relied on: `AUTHORITATIVE` (the chain verified with every input), `CONDITIONAL` (nothing failed, but some rules were not checked) or `HYPOTHETICAL` (the chain does not verify, so it permits nothing; this is only what the leaf claims).
+In the interactive view, `a` asks whether the chain would permit a request, in that format's terms: a scope and an audience for a JWT, facts and a policy for Biscuit, a command and its arguments for UCAN, an action on a resource for Mandatum, a request for a Fly.io token or predicates for a macaroon. The answer is traced link by link, so you see where authority for it ends or where it appeared from nowhere, and it says how far it can be relied on: `AUTHORITATIVE` (the chain verified with every input), `CONDITIONAL` (nothing failed, but some rules were not checked) or `HYPOTHETICAL` (the chain does not verify, so it permits nothing; this is only what the leaf claims).
 
 From a script, `whosent ask` asks the same question and exits 0 only when a VALID chain permits it. Each format takes its own question, a flag it has no use for is refused, and nothing a question needs is filled in from a default:
 
@@ -255,6 +255,7 @@ From a script, `whosent ask` asks the same question and exits 0 only when a VALI
 | Biscuit | the authorizer (`--authorizer`, `--fact`) runs over the token for a request: `--resource-id` and `--action` become `resource(...)` and `operation(...)` facts; it decides with the authorizer's own policies unless `--policy` gives others, which makes the answer at most `CONDITIONAL` |
 | UCAN | `--action /msg/send` as the command, with `--field 'args={...}'` for its arguments |
 | Mandatum | `--resource-id`, `--action`, `--resource-type`, `--tag`, `--attr`, or a `tools/call` request with `--attr-from-args` |
+| Macaroon | Fly.io: `--action rw` with `--field org=ID` and optionally `--field app=ID`, checked with Fly.io's own access check. libmacaroons: `--field 'predicates=a; b'` |
 
 `--field KEY=VALUE` sets any of a format's question fields by name.
 

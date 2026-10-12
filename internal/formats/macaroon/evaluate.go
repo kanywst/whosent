@@ -30,6 +30,8 @@ type node struct {
 	cond, loc string
 	// end and start are a time caveat's bounds.
 	end, start time.Time
+	// flyCav is a Fly.io caveat, for ask to test a request against.
+	flyCav fly.Caveat
 
 	sections []chain.Section
 	raw      []chain.Section
@@ -282,6 +284,7 @@ func (e *evaluation) fly() {
 				cr = r.caveats[i]
 			}
 			n := newNode("first", idx, i)
+			n.flyCav = c
 			n.from = e.nodes[len(e.nodes)-1].to
 			e.flySig(n, idx, r)
 			body := caveatJSON(c)
@@ -329,8 +332,11 @@ func (e *evaluation) fly() {
 					n.set(RuleCaveat, chain.StatusNotApplicable, "an attestation: the third party's statement, not a restriction")
 					n.hop = []chain.Change{{Kind: chain.ChangeInfo, Text: "attests " + c.Name()}}
 				default:
+					// A restriction is the token's authority, not a
+					// condition on the token: Fly.io checks each request
+					// against it, and so does ask.
 					e.flyRestrictions++
-					n.fail(RuleCaveat, chain.SeverityUnchecked, "restricts the request Fly.io sees; whosent cannot see the request")
+					n.set(RuleCaveat, chain.StatusNotApplicable, "restricts what a request may do; ask tests a request against it")
 				}
 			}
 			e.add(n)
@@ -498,12 +504,14 @@ func (e *evaluation) verdict(c *chain.Chain) {
 		if e.unknownPreds > 0 {
 			why = append(why, "no predicates")
 		}
-		if e.flyRestrictions > 0 {
-			why = append(why, "Fly.io caveats on a request whosent cannot see")
-		}
 		c.IncompleteReason = strings.Join(why, ", ")
 	default:
 		c.Verdict = chain.VerdictValid
+		if e.s.b.dialect == "fly" {
+			c.Headline = fmt.Sprintf("The Fly.io token holds; its caveats (%d) limit what a request may do, and ask tests one.",
+				e.flyRestrictions)
+			return
+		}
 		c.Headline = fmt.Sprintf("The root key's macaroon holds through %d link%s: its signature, every discharge and every caveat checked.", len(c.Links), plural(len(c.Links)))
 	}
 }

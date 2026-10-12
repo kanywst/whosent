@@ -192,7 +192,10 @@ func (a *askFlags) values(cmd *cobra.Command, fields []chain.AskField, call *cha
 		if has["command"] && changed("action") {
 			values["command"] = a.action
 		}
-		if changed("resource-id") || (changed("action") && !has["command"]) {
+		if has["action"] && changed("action") {
+			values["action"] = a.action
+		}
+		if changed("resource-id") || (changed("action") && !has["command"] && !has["action"]) {
 			if !has["facts"] {
 				if changed("resource-id") {
 					return nil, nil, refuse("resource-id")
@@ -244,7 +247,7 @@ func flagFor(key string) string {
 		return "--resource-id"
 	case "policy":
 		return "--policy"
-	case "command":
+	case "command", "action":
 		return "--action"
 	}
 	return "--field " + key + "=..."

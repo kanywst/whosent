@@ -109,7 +109,7 @@ var specs = []spec{
 			return libDemo(bank(base, true, base.Add(time.Hour)), nil, nil)
 		}},
 	{"macaroon-fly", "A Fly.io token",
-		"a Fly.io-style token: an organization, a validity window and an auth caveat, discharged by the auth service with a proof bound to the token. The signature checks; the organization restricts a request whosent cannot see.",
+		"a Fly.io-style token for one organization and one app, read-write, discharged by the auth service with a proof bound to the token. The token holds; ask tests a request against its caveats.",
 		func(base time.Time) demo {
 			return demo{data: []byte(flyDemo(base) + "\n"), key: flySignKey}
 		}},
@@ -118,6 +118,7 @@ var specs = []spec{
 func flyDemo(base time.Time) string {
 	root := mintFly(flySignKey, []byte("org-token-1"), "https://api.fly.example/v1", 0x11, false)
 	root.add(&flyio.Organization{ID: 4242, Mask: resset.ActionRead | resset.ActionWrite})
+	root.add(&flyio.Apps{Apps: resset.ResourceSet[uint64, resset.Action]{123: resset.ActionRead | resset.ActionWrite}})
 	root.add(&fly.ValidityWindow{NotBefore: base.Add(-time.Hour).Unix(), NotAfter: base.Add(24 * time.Hour).Unix()})
 	ticket, dk := root.third(flyAuthKey, "https://auth.fly.example", 0x31)
 	d := mintFly(dk, ticket, "https://auth.fly.example", 0x41, true)

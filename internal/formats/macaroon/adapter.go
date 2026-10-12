@@ -45,14 +45,14 @@ var format = chain.Format{
 	ID:       ID,
 	Name:     "Macaroon",
 	RootRole: "root key",
-	Caps:     chain.Capabilities{TimeScrub: true},
+	Caps:     chain.Capabilities{TimeScrub: true, Ask: true},
 	Rules: []chain.RuleInfo{
 		{ID: RuleFormat, Title: "format", Spec: specLib + "; " + specFly},
 		{ID: RuleSignature, Title: "signature", Spec: specPaper + ", section 3 (HMAC chain); go-macaroon Verify"},
 		{ID: RuleDischarge, Title: "discharge", Spec: specPaper + ", section 3 (third-party caveats and discharges)"},
 		{ID: RuleBinding, Title: "binding", Spec: specPaper + " (verification ids, binding a discharge to its root); " + specFly + " BindToParentToken"},
 		{ID: RuleTime, Title: "time", Spec: "libmacaroons README (time < T); go-macaroon bakery checkers (time-before); " + specFly + " ValidityWindow"},
-		{ID: RuleCaveat, Title: "caveat", Spec: "libmacaroons verifier satisfy_exact; the application's own predicates"},
+		{ID: RuleCaveat, Title: "caveat", Spec: "libmacaroons verifier satisfy_exact; the application's own predicates. Fly.io caveats restrict the request instead (flyio Access)"},
 	},
 }
 

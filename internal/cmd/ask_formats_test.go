@@ -59,6 +59,9 @@ func TestAskSpeaksEachFormatsQuestion(t *testing.T) {
 		{"--scope does not apply to a Biscuit token", "biscuit-healthy", []string{"--scope", "x"}, ExitUsage, "--scope"},
 		{"--field sets a field by name", "biscuit-healthy", []string{"--field", `facts=resource("orders"); operation("write")`}, ExitInvalid, "DENIED"},
 		{"--field refuses a field the format lacks", "biscuit-healthy", []string{"--field", "scope=x"}, ExitUsage, "no field"},
+		{"a Fly.io request is judged by its caveats", "macaroon-fly", []string{"--field", "org=4242", "--field", "app=123", "--action", "r"}, ExitValid, "PERMITTED"},
+		{"a Fly.io action outside the mask is denied", "macaroon-fly", []string{"--field", "org=4242", "--field", "app=123", "--action", "d"}, ExitInvalid, "DENIED"},
+		{"a Fly.io question needs an organization", "macaroon-fly", []string{"--action", "r"}, ExitUsage, "org"},
 		{"--policy does not apply to Mandatum", "healthy", []string{"--resource-id", "web.fetch", "--policy", "x"}, ExitUsage, "--policy"},
 	}
 	for _, tt := range tests {
