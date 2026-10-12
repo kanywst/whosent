@@ -195,8 +195,8 @@ a chain cannot make whosent fetch anything. A JWT's \fBjku\fR, \fBx5u\fR,
 .BI \-\-root\-key " KEY"
 A public key a Biscuit token may be rooted in, as hex
 (\fBed25519/\fR\fIHEX\fR or \fBsecp256r1/\fR\fIHEX\fR) or a file holding it.
-Repeatable. Without it, the authority block's signature is not checked; the
-later blocks are still verified against each other. For a macaroon, the root
+Repeatable. Without it, no block's signature is vouched for, though a
+tampered block still fails. For a macaroon, the root
 key itself (a Fly.io signing key), as hex, \fBtext:\fR\fISECRET\fR, or a file.
 .TP
 .BI \-\-revocations " FILE"
