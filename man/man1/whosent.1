@@ -1,6 +1,6 @@
-.TH WHOSENT 1 "2026-10-11" "whosent manual" "User Commands"
+.TH WHOSENT 1 "2026-10-12" "whosent manual" "User Commands"
 .SH NAME
-whosent \- see who sent an agent: a viewer for JWT token exchange, Biscuit, UCAN, Mandatum and macaroon delegation chains
+whosent \- see who sent an agent: a viewer for JWT token exchange, Biscuit, UCAN and macaroon delegation chains
 .SH SYNOPSIS
 .B whosent
 [\fIOPTIONS\fR] [\fIFILE\fR | \fB\-\fR]
@@ -21,7 +21,7 @@ whosent \- see who sent an agent: a viewer for JWT token exchange, Biscuit, UCAN
 .SH DESCRIPTION
 .B whosent
 opens a delegation chain in a terminal UI and shows who it is rooted in, how
-authority narrows at every hop, and where trust breaks. It reads three
+authority narrows at every hop, and where trust breaks. It reads four
 formats:
 .TP
 .B jwt
@@ -48,12 +48,6 @@ addressed to the next, ending in an invocation whose prf lists them from the
 subject's own. Everything is checked by whosent's own code, which agrees with
 the specification's 1.0.0 fixtures.
 .TP
-.B mandatum
-A Mandatum chain of signed links from a named human down to the acting agent.
-On every run whosent also hands the chain and the same answers to the Mandatum
-v0.2.0 reference verifier it embeds; if the two disagree, the reference verdict
-wins and the exit status is 70.
-.TP
 .B macaroon
 A macaroon and its discharges, in the libmacaroons formats or as a Fly.io
 token. One HMAC chain covers every caveat: without \fB\-\-root\-key\fR none is
@@ -70,7 +64,7 @@ never as passing: signatures need keys (\fB\-\-jwks\fR, \fB\-\-trust\fR or
 \fB\-\-root\-key\fR), the audience rule needs \fB\-\-audience\fR, Biscuit checks
 need an authorizer (\fB\-\-fact\fR, \fB\-\-authorizer\fR), macaroon predicates
 need \fB\-\-fact\fR, and revocation needs a
-list or a set. A chain is only reported
+list. A chain is only reported
 .B VALID
 when every rule was checked for every link and held.
 .SH INPUT
@@ -92,20 +86,13 @@ raw protobuf bytes.
 A container (ucan-wg/container v0.1.0, any of its six headers), a JSON array
 of base64 tokens, or base64 tokens one per line.
 .TP
-.B Mandatum
-A JSON array of compact JWS strings, sponsor first; a JSON-RPC
-\fBtools/call\fR request whose \fBparams._meta\fR carries the chain under
-\fBio.github.kanywst.mandatum/chain\fR, read exactly as Mandatum v0.2.0's MCP
-middleware reads it; or one serialization per line, with blank lines and lines
-starting with \fB#\fR skipped.
-.TP
 .B Macaroon
 libmacaroons binary v1 or v2, raw or base64 in any alphabet, a root and its
 discharges back to back or separated by whitespace or commas; their JSON, one
 object or an array; or a Fly.io token (\fBFlyV1 fm2_...\fR, comma-joined).
 .PP
 Bytes inside a serialization are never altered. Input is limited to 1 MiB; a
-Mandatum chain to 64 links, a JWT bundle to 64 tokens and 64 nested actors, and
+JWT bundle to 64 tokens and 64 nested actors, and
 a Biscuit token to 32 blocks of 256 KiB each; a UCAN chain to 64 tokens; and a
 macaroon input to 16 macaroons of 128 caveats.
 .SH COMMANDS
@@ -116,9 +103,7 @@ per link, every finding, and how authority narrows at each hop. With
 \fB\-\-json\fR the report is printed as JSON (schema
 .BR whosent.chain/v1 ,
 the same for every format) and nothing else reaches standard output; with
-\fB\-\-native\fR as well, the format's own report is printed instead
-(Mandatum's is
-.BR whosent.report/v1 ).
+\fB\-\-native\fR as well, the format's own report is printed instead.
 .TP
 .B ask
 Check a request against the chain with its format's own matcher, at every link,
@@ -129,9 +114,7 @@ Each format takes its own question: a JWT a scope (\fB\-\-scope\fR, used at
 becoming resource(...) and operation(...) facts and \fB\-\-policy\fR replacing the
 authorizer's policies (which makes the answer at most CONDITIONAL); a UCAN chain
 a command (\fB\-\-action\fR) and its arguments (\fB\-\-field\fR
-args=\fIJSON\fR); Mandatum a
-resource request (\fB\-\-resource\-id\fR, \fB\-\-action\fR,
-\fB\-\-resource\-type\fR, \fB\-\-tag\fR, \fB\-\-attr\fR); a Fly.io token a
+args=\fIJSON\fR); a Fly.io token a
 request (\fB\-\-action\fR, \fB\-\-field\fR org=\fIID\fR, \fB\-\-field\fR
 app=\fIID\fR) checked with Fly.io's own access check; a libmacaroons macaroon
 the predicates a verifier holds (\fB\-\-field\fR predicates=\fIA;B\fR).
@@ -145,8 +128,8 @@ The answer is labelled
 (nothing failed, but some rules were not checked) or
 .B HYPOTHETICAL
 (the chain does not verify, so it permits nothing; this is what the leaf
-claims). With \fB\-\-json\fR the answer is printed as schema
-.BR whosent.ask/v1 .
+claims). With \fB\-\-json\fR the answer is printed in the format's own
+schema.
 .TP
 .B demo
 Mint example chains with throwaway keys and open them in the interactive view.
@@ -155,8 +138,7 @@ brings its own keys and inputs, so the input options do not apply. With
 \fB\-\-emit\fR \fIDIR\fR it writes one scenario's files instead and prints the
 \fBwhosent check\fR command that checks them, with a
 .I manifest.json
-naming the scenario and holding that command (a Mandatum scenario's also
-records what it must report). Files are written 0600 through a
+naming the scenario and holding that command. Files are written 0600 through a
 temporary file and a rename, so a planted symbolic link is replaced rather than
 written through; a directory that is not empty is refused without
 \fB\-\-force\fR. \fB\-\-list\fR prints every scenario with its format.
@@ -166,13 +148,12 @@ Print a completion script for \fBbash\fR, \fBzsh\fR, \fBfish\fR or
 \fBpowershell\fR.
 .TP
 .B version
-Print whosent's version and the version of the Mandatum reference verifier
-it embeds.
+Print whosent's version, commit and build date.
 .SH OPTIONS
 .TP
 .BI \-\-format " NAME"
 The chain's format, when the input could be more than one: \fBjwt\fR,
-\fBbiscuit\fR, \fBucan\fR or \fBmandatum\fR.
+\fBbiscuit\fR, \fBucan\fR or \fBmacaroon\fR.
 By default the format is recognised from the input, and an input two formats
 could claim is refused rather than guessed at.
 .TP
@@ -182,11 +163,9 @@ A trust file mapping issuers to their key documents:
 A relative \fBjwks_file\fR is resolved against the trust file's directory.
 .TP
 .BI \-\-jwks " ISSUER=PATH|ISSUER=https://URL"
-One issuer's keys, for JWT and Mandatum chains. Repeatable. For a JWT, RSA, EC
-and Ed25519 keys are read (RS, PS, ES and EdDSA); encryption keys, symmetric
-keys and duplicate kids are skipped or refused. For a Mandatum chain, keys are
-read the way Mandatum's JWKS resolver reads them: Ed25519 only, and a document
-it would refuse is refused here.
+One issuer's keys, for JWTs. Repeatable. RSA, EC and Ed25519 keys are read
+(RS, PS, ES and EdDSA); encryption keys, symmetric keys and duplicate kids are
+skipped or refused.
 URLs must be https, including after any redirect; a fetch is capped at 1 MiB
 and 5 seconds. Issuers come only from these options, never from the chain, so
 a chain cannot make whosent fetch anything. A JWT's \fBjku\fR, \fBx5u\fR,
@@ -199,23 +178,13 @@ Repeatable. Without it, no block's signature is vouched for, though a
 tampered block still fails. For a macaroon, the root
 key itself (a Fly.io signing key), as hex, \fBtext:\fR\fISECRET\fR, or a file.
 .TP
-.BI \-\-revocations " FILE"
-A published compact revocation set, for Mandatum chains (specification
-section 7.1).
-.TP
 .BI \-\-revoked\-jtis " FILE"
 A list of revoked identifiers, one per line. For a Biscuit token, block
 revocation ids: a block on the list is revoked. For a UCAN chain, delegation
-CIDs, in base58btc (z...) or base32 (b...). For a Mandatum chain, the exact
-jti list used to resolve a hit in the revocation set's filter; without it, a
-hit denies, as the specification says.
-.TP
-.BI \-\-max\-age " DURATION"
-The oldest revocation set accepted; \fB0\fR accepts any age. Default 24h. A
-stale set makes revocation unknown, which denies.
+CIDs, in base58btc (z...) or base32 (b...).
 .TP
 .BI \-\-audience " AUDIENCE"
-The party the chain is presented to; checks rule J4 (JWT) or V9 (Mandatum).
+The party the chain is presented to; checks rule J4.
 An empty value is an error.
 .TP
 .BI \-\-fact " FACT"
@@ -232,16 +201,14 @@ are evaluated, against the evaluation time.
 .TP
 .BI \-\-at " TIME"
 Evaluate at this time instead of now: RFC 3339, unix seconds, \fBnow\fR, or a
-relative offset such as \fB+25m\fR or \fB\-1h\fR. A Mandatum revocation set's
-age is measured against this time too, and a Biscuit token's checks see it as
+relative offset such as \fB+25m\fR or \fB\-1h\fR. A Biscuit token's checks see it as
 \fBtime(...)\fR unless the authorizer supplies its own.
 .TP
 .BI \-\-skew " DURATION"
 Clock skew tolerance, at most 5m. Default 30s.
 .TP
 .B \-\-reverse
-A Mandatum chain was handed over leaf first; reverse it before checking. Without this,
-a chain that looks reversed is reported, never silently reordered.
+A JWT bundle was handed over newest first; reverse it before checking.
 .TP
 .B \-\-no\-motion
 No animation in the interactive view.
@@ -254,37 +221,18 @@ ASCII glyphs only. Also set by \fBWHOSENT_ASCII=1\fR.
 Print the report as JSON (schema \fBwhosent.chain/v1\fR).
 .TP
 .B \-\-native
-With \fB\-\-json\fR, print the format's own report instead (Mandatum's
-schema is \fBwhosent.report/v1\fR).
+With \fB\-\-json\fR, print the format's own report instead.
 .TP
 .B \-\-strict
 Treat INCOMPLETE as a failure (exit 1).
 .SH ASK OPTIONS
 .TP
-.BI \-\-resource\-type " TYPE"
-The resource's type. Default \fBmcp_tool\fR.
-.TP
 .BI \-\-resource\-id " ID"
-The resource, such as a tool name. Defaults to the tool a tools/call request
-names.
+Biscuit: the resource, as a \fBresource(...)\fR fact.
 .TP
 .BI \-\-action " NAME"
-The action attempted. Default \fBinvoke\fR.
-.TP
-.BI \-\-tag " TAG"
-A tag the deployment attaches to the resource. Repeatable.
-.TP
-.BI \-\-attr " KEY=VALUE"
-An attribute conditions are evaluated against. \fIVALUE\fR is read as JSON when
-it parses, so \fBargs.n=3\fR is a number. Repeatable.
-.TP
-.B \-\-attr\-from\-args
-Map a tools/call request's arguments to \fBargs.\fR\fIname\fR attributes. This
-mapping is whosent's assumption, not something an enforcement point does, and
-a warning says so.
-.TP
-.BI \-\-request " FILE"
-Read the request from a JSON file instead.
+The action: Biscuit's \fBoperation(...)\fR fact, UCAN's command, Fly.io's
+action.
 .TP
 .BI \-\-scope " SCOPE"
 JWT: the scope to ask about. Required for a JWT question.
@@ -298,8 +246,7 @@ Set one of the format's question fields by name, such as
 \fBfacts=resource("orders"); operation("read")\fR for Biscuit. Repeatable.
 .TP
 .B \-\-json
-Print the answer as JSON, in the format's own schema (\fBwhosent.ask/v1\fR for
-Mandatum).
+Print the answer as JSON, in the format's own schema.
 .TP
 .B \-\-strict
 Treat a CONDITIONAL answer as not permitted.
@@ -405,36 +352,6 @@ subject.
 .TP
 .B U9
 Revocation: no delegation's CID is on the \fB\-\-revoked\-jtis\fR list.
-.SS Mandatum
-.TP
-.B V1
-Structure: the link parses, is well formed, commits to its parent's digest, and
-its depth follows the parent's.
-.TP
-.B V2
-Custody: each link is issued by the subject of the link above it.
-.TP
-.B V3
-Signature: the issuer signed these exact bytes, with a key you supplied.
-.TP
-.B V4
-Time: not issued in the future and not expired, within the skew.
-.TP
-.B V5
-Attenuation: authority only narrows. Capabilities, expiry, delegation depth,
-sequence constraints and audience are no wider than the parent's.
-.TP
-.B V6
-Sponsor: every link names the same human, authenticated the same way.
-.TP
-.B V7
-Depth: the chain is no deeper than the sponsor allowed.
-.TP
-.B V8
-Revocation: no link is revoked. Revoking a link revokes everything below it.
-.TP
-.B V9
-Audience: the leaf is addressed to this resource server.
 .SS Macaroon
 .TP
 .B M1
@@ -477,8 +394,7 @@ INCOMPLETE: nothing failed, but something was not checked. 1 with
 The command line or an input file is wrong.
 .TP
 .B 70
-whosent and a format's reference implementation (the embedded Mandatum
-verifier) disagree about the chain. This is a bug in whosent; please report it.
+whosent and a format's reference implementation disagree about the chain. This is a bug in whosent; please report it.
 .PP
 .B ask
 exits 0 when the request is permitted by a VALID chain, 1 when it is not
@@ -501,9 +417,8 @@ Switch panel, when they do not fit side by side.
 .TP
 .B r
 The raw link: a JWT's header and claims, a Biscuit block's Datalog and
-signature, a Mandatum assertion's claims and digests. In a Mandatum chain a
-parent digest takes the colour of the link it matches, so a spliced link is the
-one whose colour matches nothing.
+signature, a UCAN token's payload. A UCAN proof takes the colour of the
+delegation it names.
 .TP
 .B space
 Replay authority flowing down the chain.
@@ -520,7 +435,7 @@ Back to the time the chain was opened at.
 .TP
 .B x
 Simulate revoking the selected link; again to undo. Nothing is revoked.
-Biscuit, UCAN and Mandatum only: JWTs have no standard revocation.
+Biscuit and UCAN only: JWTs and macaroons have no standard revocation.
 .TP
 .B X
 Clear every simulated revocation.
@@ -569,12 +484,6 @@ Open a Biscuit token and run its checks for a read of orders:
 .TP
 Check a macaroon against its root key and the predicates a verifier satisfies:
 .B whosent check token.txt \-\-root\-key root.key \-\-fact 'account = 3735928559'
-.TP
-Gate CI on a Mandatum chain that fully verifies:
-.B whosent check chain.json \-\-trust trust.json \-\-revocations revocation.json \-\-audience https://mcp.example.org
-.TP
-Ask whether a Mandatum chain's leaf may fetch a page:
-.B whosent ask chain.json \-\-resource\-id web.fetch \-\-tag external\-content \-\-attr args.host=docs.example.org
 .SH AUTHOR
 Written by kanywst.
 .SH REPORTING BUGS
@@ -590,9 +499,6 @@ The Biscuit specification:
 https://github.com/eclipse\-biscuit/biscuit/blob/main/SPECIFICATIONS.md
 .PP
 The UCAN specification: https://github.com/ucan\-wg/spec
-.PP
-The Mandatum Delegation Assertion specification:
-https://github.com/kanywst/whosent/blob/main/docs/mandatum\-spec.md
 .PP
 Macaroons: Cookies with Contextual Caveats for Decentralized Authorization in
 the Cloud (NDSS 2014); libmacaroons: https://github.com/rescrv/libmacaroons

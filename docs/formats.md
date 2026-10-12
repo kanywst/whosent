@@ -54,14 +54,6 @@ Everything is checked by whosent's own code. go-ucan v1.2.0 reads only the relea
 
 A policy that holds only because `not` turned an unresolved selector true is left unchecked. A chain without an invocation applies no policy, and its headline says so.
 
-## Mandatum
-
-[Mandatum](https://github.com/kanywst/mandatum) chains are signed links from a named human down to the acting agent. Each link commits to its parent by digest, may only narrow what it was given, and can be revoked on its own. The rules are V1 to V9 of the [specification](mandatum-spec.md).
-
-Every diagnosis also runs the Mandatum v0.2.0 reference verifier, embedded unchanged in [`internal/mandatum`](../internal/mandatum), on the same chain. If the two disagree, or the verifier cannot run, the reference verdict wins and the exit code is 70.
-
-A chain is read as a JSON array of compact JWS strings, as an MCP `tools/call` request carrying it in `params._meta["io.github.kanywst.mandatum/chain"]`, or one serialization per line.
-
 ## Macaroons
 
 A macaroon is minted from a root key only its issuer holds, and every caveat appended narrows it. whosent draws one link per caveat, with a third-party caveat's discharge under the caveat it answers. It reads the libmacaroons formats (binary v1 and v2, base64 or raw, and their JSON) with a root and its discharges back to back, and Fly.io tokens (`FlyV1 fm2_...`).

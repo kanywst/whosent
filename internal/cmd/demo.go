@@ -32,7 +32,7 @@ func newDemo(f *flags, reg *chain.Registry, stdout io.Writer) *cobra.Command {
 		Short: "Mint example chains and open them, or write them out as fixtures",
 		Long: `demo mints delegation chains with throwaway keys and opens them in the
 interactive view. With no scenario it tours them all; n and p switch between
-them. Each scenario brings its own keys, revocation set and audience, so the
+them. Each scenario brings its own keys, revocation list and audience, so the
 input flags do not apply.
 
 With --emit DIR it writes one scenario's files instead, with a manifest.json

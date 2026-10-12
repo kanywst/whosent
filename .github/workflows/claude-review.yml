@@ -74,29 +74,30 @@ jobs:
             REPO: ${{ github.repository }}
             PR: ${{ github.event.pull_request.number }}
 
-            whosent is a Go TUI and CLI for reading Mandatum delegation chains: signed
-            JWS links from a human sponsor down to an acting agent. pkg/diagnose evaluates
-            the verification rules V1 to V9 for every link without stopping at the first
-            failure; internal/mandatum is the Mandatum v0.2.0 reference verifier, copied
-            from the archived github.com/kanywst/mandatum, that it must agree with. internal/cmd is the cobra surface, internal/ui the Bubble Tea
-            model, internal/trust the key loader, internal/termsafe the escaping of
-            untrusted text, and `check` is meant to be usable as a CI gate.
+            whosent is a Go TUI and CLI for reading delegation chains: JWT token exchange
+            (RFC 8693 act), Biscuit, UCAN and macaroons. Each format is an adapter under
+            internal/formats that evaluates its rules for every link without stopping at
+            the first failure and describes the result in pkg/chain. internal/cmd is the
+            cobra surface, internal/ui the Bubble Tea model, internal/trust the key
+            loader, internal/termsafe the escaping of untrusted text, and `check` is meant
+            to be usable as a CI gate.
 
             Do not repeat what CI already does. golangci-lint, go vet, govulncheck, the
             race-detector tests and the 85% coverage gate run on this PR already.
 
             Look for what only a reader can catch:
 
-            1. Disagreement with mandatum. The guard in pkg/diagnose/guard.go runs
-               verify.Verify on every diagnosis and must keep failing closed: when the
-               two disagree, or the library cannot run, mandatum's verdict wins and the
-               exit code is 70. A change that weakens the guard, or a new rule check
-               that is not the library's own comparison, is the most serious finding.
+            1. Disagreement with a reference. Biscuit must match the specification's
+               samples, UCAN its 1.0.0 fixtures, and macaroons are compared with
+               go-macaroon or superfly/macaroon on every run (a disagreement exits 70).
+               A change that loosens one of these, or edits the vendored test data to
+               make a test pass, is the most serious finding.
 
-            2. Honesty. A rule that was not checked (no keys, no revocation set, no
+            2. Honesty. A rule that was not checked (no keys, no revocation list, no
                audience) is UNCHECKED, never PASS, and never renders green or with a
                check mark. VALID requires every rule checked. AUTHORITATIVE requires a
-               VALID chain with no stubbed input.
+               VALID chain with no missing input. A JWT's prior actors are asserted,
+               never verified.
 
             3. Untrusted text reaching the terminal. Every string that comes from a
                chain, a key document, a library error or user input must pass through
@@ -104,11 +105,8 @@ jobs:
                the screen. Look for new Printf, Sprintf into a view, or lipgloss Render of
                a claim value that skips the choke points.
 
-            4. Parity at the edges. The trust loader and the tools/call reader mirror
-               internal/mandatum/jose and the v0.2.0 MCP parsing copied in
-               pkg/diagnose/mcp_oracle_test.go; a change on either side has to keep the
-               parity tests honest rather than loosening them. Any change to what
-               internal/mandatum accepts or refuses is a serious finding.
+            4. The network. Keys come only from flags and the trust file, never from a
+               token (jku, x5u, x5c, jwk). Fetches stay https-only through redirects.
 
             5. Test shape. Chains are minted per run with throwaway keys rather than
                committed, because a committed assertion expires. Rendering tests must

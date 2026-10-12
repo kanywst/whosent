@@ -6,7 +6,7 @@ This document is the contract. [`pkg/chain/chaintest`](../pkg/chain/chaintest) i
 
 ## Where it goes
 
-- The adapter lives in `internal/formats/<id>`, where `<id>` is the name typed after `--format` (`jwt`, `biscuit`, `ucan`, `mandatum`, `macaroon`).
+- The adapter lives in `internal/formats/<id>`, where `<id>` is the name typed after `--format` (`jwt`, `biscuit`, `ucan`, `macaroon`).
 - It is added to `Adapters()` in [`internal/formats/all`](../internal/formats/all/all.go), and nowhere else. That list is the order `--format` names formats in and the order the demo tour visits them.
 - Its test calls `chaintest.Run(t, New())`. `internal/formats/all` runs the suite over every registered format too.
 
@@ -35,7 +35,7 @@ type Asker interface {
 
 ### Format
 
-- `ID`, `Name`, `RootRole` ("sponsor", "issuer", "root key") and `Rules`.
+- `ID`, `Name`, `RootRole` ("subject", "issuer", "root key") and `Rules`.
 - `Rules` are the format's checks, in the order the view lists them. IDs are short and stable (`B3`, `J3`); a title is a word or two (`signature`, `time`). Every link's `Checks` has exactly one entry per rule, in this order.
 - `Caps` switches the view's features on. Switch off what the format cannot honestly support: `TimeScrub` only when links have lifetimes, `RevokeSim` only when links have identifiers a revocation names, `Ask` only when the session implements `Asker`, `PerHopSignatures` only when each link is signed by the one before it.
 
@@ -47,7 +47,7 @@ type Asker interface {
 
 ### Open
 
-- Reads the chain from `Inputs.Data` and whatever inputs the format uses: `JWKS` and `TrustFile` for issuer keys, `RootKeys` for a root public key, `Revocations`, `RevokedIDs` and `MaxAge`, `Audience`, `Facts` and `Authorizer` for an authorizer, `At` and `Skew`.
+- Reads the chain from `Inputs.Data` and whatever inputs the format uses: `JWKS` and `TrustFile` for issuer keys, `RootKeys` for a root public key, `RevokedIDs`, `Audience`, `Facts` and `Authorizer` for an authorizer, `At` and `Skew`.
 - An error is a usage error (exit 3): a file that cannot be read, a malformed value. A chain that fails its rules is not an error.
 - The command line has already checked what every format shares: `--at` parses, `--skew` is within 5m, `--audience` is not empty, `--jwks` has the `ISSUER=LOCATION` shape. An adapter may narrow these, never widen them.
 - Inputs a format has no use for are listed in `Chain.Ignored` (`chain.IgnoredInputs`), which `check`, `--json` and the view all show.
@@ -74,7 +74,7 @@ These are the promises the view relies on and cannot check itself. `chaintest` c
 | --- | --- |
 | Header and verdict | `Verdict`, `BreakAt`, `Root.Name`, each link's `To`, the failing rules' titles; `Headline` replaces the sentence if set |
 | Line under the verdict | the scenario's summary, or `Summary` parts |
-| Rail | `Root` (name, `RootRole`, up to two `Details`), each link's `From`, `To`, state, `Depth` pips, `ExpiresAt`, `Remaining` |
+| Rail | `Root` (name, `RootRole`, up to two `Details`), each link's `From`, `To`, state, `ExpiresAt`, `Remaining` |
 | Timeline (`t`) | `IssuedAt`, `ExpiresAt` |
 | Matrix panel | `Matrix`: `Title` and `Scope`, `Rows` (label, `Origin` above 0 for authority that appeared later, one `Cell` per link, `Lineage`), `RootRows`, `Retained`, `Extra` summary rows, `UnknownLabel` (what the legend calls `CellUnknown`). An asserted link's reach reads `?`, never `0/n`. Nil: the findings take the panel |
 | Findings panel | every finding, worst first, then `CheckedAgainst` |
@@ -84,7 +84,7 @@ These are the promises the view relies on and cannot check itself. `chaintest` c
 | `check` | `Describe`, `Context`, the rule grid, findings, each hop's `Summary` (or `Changes`), `Missing` |
 | `check --json` | `JSON()` (`whosent.chain/v1`); `--native` prints `Native` |
 
-Sections are lists of `Line`s: `LineKV` (key and wrapped value), `LineText` (a sentence at `Indent`), `LineChange` (a diff line with a `ChangeKind` mark), `LineJSON` (an indented document, keys coloured apart), `LineCode` (source such as Datalog, one line per line). `Tone` says what a line means, never what colour it is. `Digest` above 0 draws a value in a link's own colour, so values naming the same link match (Mandatum's parent commitments use it to make a spliced link stand out).
+Sections are lists of `Line`s: `LineKV` (key and wrapped value), `LineText` (a sentence at `Indent`), `LineChange` (a diff line with a `ChangeKind` mark), `LineJSON` (an indented document, keys coloured apart), `LineCode` (source such as Datalog, one line per line). `Tone` says what a line means, never what colour it is. `Digest` above 0 draws a value in a link's own colour, so values naming the same link match (UCAN's proof CIDs use it, so each proof shows which delegation it names).
 
 ## Strings
 

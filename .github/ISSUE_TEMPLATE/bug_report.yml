@@ -8,7 +8,7 @@ body:
         For a suspected vulnerability, do not use this form. Open a
         [private advisory](https://github.com/kanywst/whosent/security/advisories/new)
         instead. That includes any case where whosent reports a chain as VALID,
-        or a request as PERMITTED, that mandatum's verifier would deny.
+        or a request as PERMITTED, that the format's own rules deny.
 
   - type: textarea
     id: what-happened
@@ -25,7 +25,7 @@ body:
       description: The exact command line, and its output. `whosent check --json` output is the most useful form.
       render: text
       placeholder: |
-        $ whosent check chain.json --trust trust.json --audience https://mcp.example.org
+        $ whosent check tokens.json --trust trust.json --audience https://api.example.com
         ...
     validations:
       required: true
@@ -46,7 +46,7 @@ body:
     attributes:
       label: Version
       description: The output of `whosent version`.
-      placeholder: "whosent v0.1.0, mandatum v0.2.0"
+      placeholder: "whosent 0.3.0 (abc1234) built 2026-10-12T00:00:00Z"
     validations:
       required: true
 
