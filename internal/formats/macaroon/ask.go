@@ -174,7 +174,21 @@ func (s *session) askFly(c *chain.Chain, values map[string]string) (*chain.AskRe
 			res.Reason = "the caveat-by-caveat reading refuses it"
 		}
 	}
-	settle(res, c, ok, "Fly.io's access check allows it, and the token verifies")
+	// The request is the input the open chain lacked, so the token is
+	// judged on its own and the request by Validate above.
+	// Only an INCOMPLETE chain is resolved this way: an INVALID one, for
+	// any reason, permits nothing, and what it found stays in the answer.
+	judged := c
+	if c.Verdict == chain.VerdictIncomplete {
+		tok := *s
+		tok.flyReq, tok.flyReqText, tok.tokenOnly = nil, nil, true
+		judged = tok.evaluate(c.At)
+		res.Judged = judged.Verdict
+	}
+	if res.Inconsistency == nil {
+		res.Inconsistency = c.Inconsistency
+	}
+	settle(res, judged, ok, "Fly.io's access check allows it, and the token verifies")
 	if !verified && s.key != nil && res.Warning == "" {
 		res.Warning = "the token does not verify, so its caveats were read without being vouched for"
 	}

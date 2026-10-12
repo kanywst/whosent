@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -13,6 +14,8 @@ import (
 	"time"
 
 	fly "github.com/superfly/macaroon"
+	"github.com/superfly/macaroon/flyio"
+	"github.com/superfly/macaroon/resset"
 
 	"github.com/kanywst/whosent/pkg/chain"
 	"github.com/kanywst/whosent/pkg/chain/chaintest"
@@ -73,7 +76,8 @@ func TestEachScenarioBreaksWhereItShould(t *testing.T) {
 		{"macaroon-tampered", chain.VerdictInvalid, 0, map[string][]int{RuleSignature: {0, 1, 2, 3, 4}, RuleBinding: {4}}},
 		{"macaroon-expired", chain.VerdictInvalid, 3, map[string][]int{RuleTime: {3}}},
 		{"macaroon-unchecked", chain.VerdictIncomplete, -1, map[string][]int{}},
-		{"macaroon-fly", chain.VerdictValid, -1, map[string][]int{}},
+		{"macaroon-fly", chain.VerdictIncomplete, -1, map[string][]int{}},
+		{"macaroon-fly-request", chain.VerdictValid, -1, map[string][]int{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -361,13 +365,14 @@ func TestOpenReadsKeysAndRefusesWhatItCannot(t *testing.T) {
 
 func TestIgnoredInputsAreReported(t *testing.T) {
 	aud := "x"
-	s, err := New().Open(context.Background(), chain.Inputs{Data: []byte(flyDemo(chaintest.Base)), Audience: &aud, Facts: []string{"a = b"}})
+	s, err := New().Open(context.Background(), chain.Inputs{Data: []byte(flyDemo(chaintest.Base)), Audience: &aud, Facts: []string{"org=4242", "action=r"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := evaluate(t, s.(*session), time.Minute)
 	got := strings.Join(c.Ignored, " ")
-	if !strings.Contains(got, "--audience") || !strings.Contains(got, "--fact") {
+	// --fact is the Fly.io request, so only --audience is ignored.
+	if !strings.Contains(got, "--audience") || strings.Contains(got, "--fact") {
 		t.Errorf("ignored: %v", c.Ignored)
 	}
 }
@@ -451,13 +456,13 @@ func FuzzDecode(f *testing.F) {
 	})
 }
 
-// A Fly.io token's caveats are its authority: the token is VALID, and a
-// request is judged against them by Fly.io's own access check.
+// Without a request a Fly.io token is INCOMPLETE; ask supplies one, and
+// Fly.io's own access check judges it against the caveats.
 func TestAskJudgesAFlyRequestWithFlyiosAccessCheck(t *testing.T) {
 	s := open(t, "macaroon-fly")
 	c := evaluate(t, s, time.Minute)
-	if c.Verdict != chain.VerdictValid {
-		t.Fatalf("the Fly.io demo is %s: %v", c.Verdict, c.Findings())
+	if c.Verdict != chain.VerdictIncomplete {
+		t.Fatalf("the Fly.io demo with no request is %s: %v", c.Verdict, c.Findings())
 	}
 	tests := []struct {
 		name    string
@@ -578,5 +583,97 @@ func TestAskReportsADisagreementWithTheLibrary(t *testing.T) {
 	}
 	if res.Inconsistency == nil || res.Permitted {
 		t.Errorf("a disagreement went unreported: %s, %+v", res.Verdict, res.Inconsistency)
+	}
+}
+
+// When superfly/macaroon's Validate and the caveats one by one judge the
+// --fact request differently, the disagreement is reported and a refusal
+// stands, whichever side refused.
+func TestARequestDisagreementIsReported(t *testing.T) {
+	tests := []struct {
+		name    string
+		action  string
+		refuse  error
+		verdict chain.Verdict
+	}{
+		{"Validate refuses what every caveat allows", "r", errors.New("injected refusal"), chain.VerdictInvalid},
+		{"Validate allows what a caveat refuses", "d", nil, chain.VerdictInvalid},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := open(t, "macaroon-fly-request")
+			s.flyReq, s.flyReqText, _ = flyRequest([]string{"org=4242", "app=123", "action=" + tt.action})
+			s.reqRefuse = func() error { return tt.refuse }
+			c := evaluate(t, s, time.Minute)
+			if c.Inconsistency == nil || c.Verdict != tt.verdict {
+				t.Errorf("inconsistency %v, verdict %s; want a reported disagreement and %s", c.Inconsistency, c.Verdict, tt.verdict)
+			}
+		})
+	}
+}
+
+func TestARequestKeyGivenTwiceIsRefused(t *testing.T) {
+	if _, _, err := flyRequest([]string{"org=4242", "action=d", "action=r"}); err == nil {
+		t.Error("action given twice was accepted")
+	}
+}
+
+// A chain the session's own --fact request made INVALID permits nothing,
+// whatever ask is asked, and a request-guard disagreement reaches the answer.
+func TestAskOnAChainTheRequestBrokePermitsNothing(t *testing.T) {
+	s := open(t, "macaroon-fly-request")
+	s.flyReq, s.flyReqText, _ = flyRequest([]string{"org=4242", "app=123", "action=d"})
+	c := evaluate(t, s, time.Minute)
+	if c.Verdict != chain.VerdictInvalid {
+		t.Fatalf("a refused delete is %s", c.Verdict)
+	}
+	res, err := s.Ask(context.Background(), c, map[string]string{askOrg: "4242", askAction: "r", askApp: "123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Permitted || res.Judged != "" {
+		t.Errorf("permitted %v, judged %q from an INVALID chain", res.Permitted, res.Judged)
+	}
+
+	s.reqRefuse = func() error { return nil }
+	c = evaluate(t, s, time.Minute)
+	res, err = s.Ask(context.Background(), c, map[string]string{askOrg: "4242", askAction: "r", askApp: "123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Inconsistency == nil || res.Inconsistency == nil {
+		t.Errorf("the request guard's disagreement did not reach the answer: chain %v, answer %v", c.Inconsistency, res.Inconsistency)
+	}
+}
+
+// Two disagreements at once keep both: the signature guard's first, then
+// the request guard's.
+func TestTwoDisagreementsAreBothKept(t *testing.T) {
+	s := open(t, "macaroon-fly-request")
+	s.refuse = func() error { return errors.New("injected signature refusal") }
+	s.reqRefuse = func() error { return errors.New("injected request refusal") }
+	c := evaluate(t, s, time.Minute)
+	if c.Inconsistency == nil || !strings.Contains(c.Inconsistency.Detail, "injected signature refusal") || !strings.Contains(c.Inconsistency.Detail, "injected request refusal") {
+		t.Errorf("inconsistency %+v; want both disagreements", c.Inconsistency)
+	}
+}
+
+// A discharge that answers another permission token's caveat is never
+// walked, so its caveats cannot make the request guard cry inconsistency.
+func TestAnUnwalkedDischargeDoesNotTripTheRequestGuard(t *testing.T) {
+	other := mintFly(flySignKey, []byte("org-token-2"), "https://api.fly.example/v1", 0x12, false)
+	ticket, dk := other.third(flyAuthKey, "https://auth.fly.example", 0x32)
+	d := mintFly(dk, ticket, "https://auth.fly.example", 0x42, true)
+	d.add(&flyio.Organization{ID: 1, Mask: resset.ActionRead})
+	extra := strings.TrimPrefix(flyHeader(other.encode(), d.encode()), fly.AuthorizationSchemeFlyV1+" ")
+	data := flyDemo(chaintest.Base) + "," + extra
+	s, err := New().Open(context.Background(), chain.Inputs{Data: []byte(data), RootKeys: []string{hex.EncodeToString(flySignKey)},
+		Facts: []string{"org=4242", "app=123", "action=r"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := evaluate(t, s.(*session), time.Minute)
+	if c.Inconsistency != nil {
+		t.Errorf("an unwalked discharge tripped the guard: %+v", c.Inconsistency)
 	}
 }

@@ -61,7 +61,7 @@ type Asker interface {
 
 These are the promises the view relies on and cannot check itself. `chaintest` checks each of them.
 
-- **VALID means every rule was checked and holds.** Any `StatusFail` or `StatusError` makes the chain INVALID; any `StatusUnchecked` without a failure makes it INCOMPLETE, with `IncompleteReason` naming the missing input. If VALID covers less than it sounds (a Fly.io token whose request caveats were not tested), say so in `ValidScope`.
+- **VALID means every rule was checked and holds.** Any `StatusFail` or `StatusError` makes the chain INVALID; any `StatusUnchecked` without a failure makes it INCOMPLETE, with `IncompleteReason` naming the missing input.
 - **Unchecked never looks checked.** A link with an unchecked rule is `LinkIncomplete`, never `LinkOK`, or the rail draws it as verified.
 - **Asserted is not unchecked.** When a link's place in the chain is only the issuer's say-so, such as a prior actor in a JWT's nested `act` (RFC 8693 section 4.1: informational), set `Link.Asserted`. The rules nothing could check for that link, whatever was supplied, are `StatusNotApplicable`: `StatusUnchecked` would claim an input could have checked them. The view draws an asserted link amber and dashed, labelled "asserted", never like a verified one.
 - **Everything below a break is unreached.** `BreakAt` is the first link that fails (or is revoked); every link after it has `Unreached` set and `UnreachedBy` naming the link above. The view greys them and their matrix columns out.

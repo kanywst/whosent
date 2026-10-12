@@ -108,10 +108,15 @@ var specs = []spec{
 		func(base time.Time) demo {
 			return libDemo(bank(base, true, base.Add(time.Hour)), nil, nil)
 		}},
-	{"macaroon-fly", "A Fly.io token",
-		"a Fly.io-style token for one organization and one app, read-write, discharged by the auth service with a proof bound to the token. The token holds; ask tests a request against its caveats.",
+	{"macaroon-fly", "A Fly.io token, no request",
+		"a Fly.io-style token for one organization and one app, read-write, discharged by the auth service with a proof bound to the token. The token holds, but its organization and app caveats restrict requests, and none was given.",
 		func(base time.Time) demo {
 			return demo{data: []byte(flyDemo(base) + "\n"), key: flySignKey}
+		}},
+	{"macaroon-fly-request", "A Fly.io token and a read",
+		"the same token, checked against a read on its app: every caveat allows it.",
+		func(base time.Time) demo {
+			return demo{data: []byte(flyDemo(base) + "\n"), key: flySignKey, facts: []string{"org=4242", "app=123", "action=r"}}
 		}},
 }
 
@@ -138,7 +143,11 @@ func (d demo) session(name string, base time.Time) (*session, error) {
 	if d.key != nil {
 		s.demo = "demo root key"
 	}
-	if b.dialect != "fly" {
+	if b.dialect == "fly" {
+		if s.flyReq, s.flyReqText, err = flyRequest(d.facts); err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+	} else {
 		s.facts = map[string]bool{}
 		for _, f := range d.facts {
 			s.facts[f] = true

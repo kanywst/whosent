@@ -110,7 +110,7 @@ UCAN 1.0 delegations from the subject down to an invocation, checked against the
 
 ### Macaroons
 
-libmacaroons tokens and Fly.io tokens (`FlyV1 fm2_...`), one link per caveat. Cross-checked on every run with go-macaroon or superfly/macaroon. A VALID Fly.io token means the token holds; its Organization and App caveats restrict requests, which `ask` checks.
+libmacaroons tokens and Fly.io tokens (`FlyV1 fm2_...`), one link per caveat. Cross-checked on every run with go-macaroon or superfly/macaroon. A Fly.io token's Organization and App caveats restrict requests: without one they are not checked, and `--fact org=ID --fact action=r` gives one.
 
 | Rule | Checks |
 | :--: | :--- |
@@ -119,7 +119,7 @@ libmacaroons tokens and Fly.io tokens (`FlyV1 fm2_...`), one link per caveat. Cr
 | M3 | every third-party caveat has its discharge, used once, and no discharge is left over |
 | M4 | the caveat's sealed key opens under the chain; a Fly.io discharge is bound to its token |
 | M5 | time caveats (`time < T`, `time-before T`, Fly.io `ValidityWindow`) hold at the evaluation time |
-| M6 | libmacaroons first-party predicates are among the `--fact` predicates; without `--fact` they are not checked |
+| M6 | libmacaroons predicates are among the `--fact` predicates; Fly.io caveats allow the `--fact` request. Without `--fact` they are not checked |
 
 ## Checking from a script
 

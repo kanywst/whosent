@@ -145,7 +145,7 @@ audience) are reported as unchecked, never as passing.`,
 	p.StringVar(&f.revokedJTIs, "revoked-jtis", "", "exact list of revoked identifiers, one per line, to resolve filter hits")
 	p.DurationVar(&f.maxAge, "max-age", defaultMaxAge, "oldest revocation set accepted; 0 accepts any age")
 	p.StringVar(&f.audience, "audience", "", "the party the chain is presented to (checks the audience rule)")
-	p.StringArrayVar(&f.facts, "fact", nil, "a fact an authorizer supplies, such as 'operation(\"read\")', or a macaroon predicate a verifier satisfies (repeatable)")
+	p.StringArrayVar(&f.facts, "fact", nil, "a fact an authorizer supplies, such as 'operation(\"read\")', a macaroon predicate a verifier satisfies, or a Fly.io request as KEY=VALUE such as org=1 (repeatable)")
 	p.StringVar(&f.authorizer, "authorizer", "", "a file of authorizer code to evaluate the chain's checks against")
 	p.StringVar(&f.at, "at", "", "evaluate at this time: RFC 3339, unix seconds, or relative like +25m or -1h")
 	p.DurationVar(&f.skew, "skew", defaultSkew, "clock skew tolerance, at most "+maxSkew.String())
