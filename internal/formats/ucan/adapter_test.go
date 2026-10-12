@@ -587,3 +587,34 @@ func TestDIDKeysOfTheThreeRequiredAlgorithmsDecode(t *testing.T) {
 		t.Errorf("did:web: %v", err)
 	}
 }
+
+// demoChain evaluates a minted demo a minute after it was minted.
+func demoChain(t *testing.T, d demo) *chain.Chain {
+	t.Helper()
+	var toks []*Token
+	for _, raw := range d.tokens {
+		toks = append(toks, decodeToken(raw))
+	}
+	s := &Session{tokens: toks, inputFormat: "demo", opts: d.options(), at: chaintest.Base.Add(time.Minute), source: "test"}
+	c, err := s.Evaluate(context.Background(), chain.EvalOptions{At: chaintest.Base.Add(time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// A selector that finds nothing makes its statement false, and not turns
+// that true. go-ucan refuses the same policy, so whosent must not call the
+// chain VALID on that reading alone.
+func TestANegatedMissingSelectorIsNotVouchedFor(t *testing.T) {
+	c := demoChain(t, healthy(chaintest.Base, func(ds []dlgSpec, _ *invSpec) {
+		ds[1].pol = append(ds[1].pol, stmt(vStr("not"), stmt(vStr("=="), vStr(".to[9]"), vStr("eve@elsewhere.example"))))
+	}))
+	if c.Verdict == chain.VerdictValid {
+		t.Fatalf("VALID on a policy only the spec's reading accepts: %s", c.Headline)
+	}
+	if st := c.Links[len(c.Links)-1].Check(RulePolicy).Status; st != chain.StatusUnchecked {
+		t.Errorf("U7 is %v, want unchecked", st)
+	}
+}
+

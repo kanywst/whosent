@@ -389,6 +389,9 @@ type evaluation struct {
 	// unresolved is set when a selector could not be resolved: the
 	// statement is false, which a not then turns true.
 	unresolved bool
+	// negated is set when a not turned such a false into true: the spec
+	// allows it, go-ucan refuses it, so the answer cannot be vouched for.
+	negated bool
 	// emptyAny is set when any was asked of an empty collection.
 	emptyAny bool
 }
@@ -421,7 +424,13 @@ func (s Statement) eval(v Value, ev *evaluation) (bool, error) {
 	}
 	switch s.Op {
 	case "not":
+		before := ev.unresolved
+		ev.unresolved = false
 		r, err := s.Sub.eval(v, ev)
+		if ev.unresolved && !r {
+			ev.negated = true
+		}
+		ev.unresolved = ev.unresolved || before
 		return !r, err
 	case "and":
 		for _, sub := range s.Subs {

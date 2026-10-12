@@ -544,10 +544,12 @@ func (a *analysis) policy(n *node) {
 		n.find(RulePolicy, chain.SeverityFail, "the arguments break link %d's policy: %s", failed.link, failed.stmt)
 		return
 	}
-	n.set(RulePolicy, chain.StatusPass, "the arguments satisfy all %d statement(s)", total)
-	if ev.unresolved {
-		n.find(RulePolicy, chain.SeverityWarn, "a selector found nothing, so its statement counted as false; under not that holds, as the spec reads, though go-ucan refuses")
+	if ev.negated {
+		n.set(RulePolicy, chain.StatusUnchecked, "a selector found nothing under not: the spec reads that as true, go-ucan refuses it")
+		n.find(RulePolicy, chain.SeverityUnchecked, "a selector found nothing under not, so the policy holds only by the spec's reading; go-ucan refuses it")
+		return
 	}
+	n.set(RulePolicy, chain.StatusPass, "the arguments satisfy all %d statement(s)", total)
 	if ev.emptyAny {
 		n.find(RulePolicy, chain.SeverityInfo, "any was asked of an empty collection and counted as false")
 	}
