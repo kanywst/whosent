@@ -1,7 +1,7 @@
 // Package chain is the format-neutral model of a delegation chain that
 // whosent's interactive view and command line render.
 //
-// A format adapter (Mandatum, Biscuit, a JWT carrying RFC 8693 `act`) reads
+// A format adapter (Biscuit, UCAN, a JWT carrying RFC 8693 `act`) reads
 // its own token format, checks it by that format's own rules, and describes
 // the result in these types. Nothing here knows what a capability or a
 // signature looks like in any particular format: the adapter decides what the
@@ -144,9 +144,9 @@ type Capabilities struct {
 
 // Format describes a token format.
 type Format struct {
-	// ID is the --format name, such as "mandatum".
+	// ID is the --format name, such as "biscuit".
 	ID string
-	// Name is how it is written in prose, such as "Mandatum".
+	// Name is how it is written in prose, such as "Biscuit".
 	Name string
 	// Rules are the format's rules in the order the view lists them. A
 	// link's Checks follow the same order.
@@ -182,9 +182,6 @@ type Chain struct {
 	Normalizations []string
 	// Reversed is set when the chain was reversed on request.
 	Reversed bool
-	// Call is the request the chain arrived with, when the input carried
-	// one (an MCP tools/call), so a question about it can start from it.
-	Call *Call
 	// At is the time the chain was evaluated at.
 	At time.Time
 
@@ -229,7 +226,7 @@ type Chain struct {
 	// a person can pass: "signatures (--trust or --jwks)".
 	Missing []string
 	// Ignored names the inputs that were given but that this format has no
-	// use for, each with why: "--revocations (a JWT has no revocation
+	// use for, each with why: "--revoked-jtis (a JWT has no revocation
 	// list)". A flag that silently does nothing reads as one that was
 	// checked, so every format says so, in the same words everywhere.
 	Ignored []string
@@ -245,14 +242,6 @@ type Chain struct {
 	// Native is the adapter's own report, for `check --json --native`.
 	// Nil when the adapter has none beyond this model.
 	Native any
-}
-
-// Call is a request a chain was presented with.
-type Call struct {
-	// Name is what was called, such as an MCP tool's name.
-	Name string
-	// Arguments are its arguments, as decoded JSON.
-	Arguments map[string]any
 }
 
 // Root is what the chain is rooted in: a human sponsor, an issuer, a key.
@@ -275,12 +264,6 @@ const (
 	LinkIncomplete
 	LinkBroken
 )
-
-// Pips is a link's remaining delegation depth, drawn as filled and empty
-// dots.
-type Pips struct {
-	Left, Total int
-}
 
 // Link is one hop of the chain: authority handed from From to To.
 type Link struct {
@@ -318,9 +301,6 @@ type Link struct {
 	// Remaining is ExpiresAt minus the evaluation time; negative once
 	// expired. Meaningless when ExpiresAt is zero.
 	Remaining time.Duration
-	// Depth is how many further delegations the link permits, or nil when
-	// the format has no such limit.
-	Depth *Pips
 	// RevokeID is what a revocation simulation of this link revokes, or
 	// empty when this link cannot be revoked on its own. The view passes it
 	// back in EvalOptions.SimRevoked exactly as given and never draws it.
@@ -578,10 +558,8 @@ type Line struct {
 	// Indent is how far a LineText is indented.
 	Indent int
 	// Digest, when 1 or more, draws the value in that link's digest colour
-	// (link Digest-1), so values naming the same link match; DigestSoft
-	// drops the emphasis.
-	Digest     int
-	DigestSoft bool
+	// (link Digest-1), so values naming the same link match.
+	Digest int
 }
 
 // Section is a titled block of lines.

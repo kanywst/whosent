@@ -280,7 +280,7 @@ func TestTheRevocationListIsRead(t *testing.T) {
 	}
 	text, _ := tok.Text()
 	s, err := New().Open(context.Background(), chain.Inputs{Data: []byte(text), RevokedIDs: list, RootKeys: []string{rootSigner.Pub.String()},
-		Facts: []string{`resource("a")`, `operation("read")`}, Revocations: "set.json", Audience: new(string), JWKS: []string{"x=y"}, At: testAt})
+		Facts: []string{`resource("a")`, `operation("read")`}, Audience: new(string), JWKS: []string{"x=y"}, At: testAt})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,8 +291,8 @@ func TestTheRevocationListIsRead(t *testing.T) {
 	if !c.Links[2].Revoked || c.BreakAt != 2 {
 		t.Errorf("block 2 is on the list: revoked %v, break %d", c.Links[2].Revoked, c.BreakAt)
 	}
-	if len(c.Ignored) != 3 {
-		t.Errorf("%d ignored inputs reported, want 3 (--jwks, --revocations, --audience): %v", len(c.Ignored), c.Ignored)
+	if len(c.Ignored) != 2 {
+		t.Errorf("%d ignored inputs reported, want 2 (--jwks, --audience): %v", len(c.Ignored), c.Ignored)
 	}
 	if err := os.WriteFile(list, []byte("not hex\n"), 0o600); err != nil {
 		t.Fatal(err)

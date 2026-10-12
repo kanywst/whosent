@@ -40,7 +40,6 @@ archives:
     name_template: "{{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}"
     files:
       - LICENSE
-      - NOTICE
       - README.md
       - man/man1/*
       - completions/*
@@ -109,7 +108,7 @@ homebrew_casks:
       zsh: completions/whosent.zsh
       fish: completions/whosent.fish
     homepage: "https://github.com/kanywst/whosent"
-    description: "Who sent this agent? A TUI for delegation chains: JWT token exchange (act), Biscuit, UCAN and Mandatum"
+    description: "Who sent this agent? A TUI for delegation chains: JWT token exchange (act), Biscuit, UCAN and macaroons"
     repository:
       owner: kanywst
       name: homebrew-tap
@@ -142,7 +141,7 @@ signs:
 
 nfpms:
   - maintainer: kanywst
-    description: "Who sent this agent? A TUI for delegation chains: JWT token exchange (act), Biscuit, UCAN and Mandatum"
+    description: "Who sent this agent? A TUI for delegation chains: JWT token exchange (act), Biscuit, UCAN and macaroons"
     homepage: https://github.com/kanywst/whosent
     license: Apache-2.0
     formats:

@@ -118,18 +118,13 @@ func (m Model) ruleMarks(l chain.Link) (string, lipgloss.Style) {
 	return m.g.pass, m.t.mint
 }
 
-// vitals is an agent's remaining delegation depth as pips, and its time left.
+// vitals is an agent's time left.
 func (m Model) vitals(l chain.Link) string {
-	g, t := m.g, m.t
+	t := m.t
 	if !l.Readable {
 		return t.slate.Render("unreadable")
 	}
 	var parts []string
-	if d := l.Depth; d != nil {
-		left := min(d.Left, d.Total)
-		parts = append(parts, t.gold.UnsetBold().Render(strings.Repeat(g.pipOn, max(left, 0)))+
-			t.slate.Render(strings.Repeat(g.pipOff, max(d.Total-left, 0))))
-	}
 	switch {
 	case l.ExpiresAt.IsZero():
 	case l.Remaining <= 0:

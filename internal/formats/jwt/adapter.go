@@ -79,8 +79,7 @@ func (Adapter) Format() chain.Format { return format }
 
 // Detect claims a token whose header names a delegation profile, or whose
 // claims carry a delegation (act, may_act, Entra's agent facets), and
-// considers any other signed JWT plausible. A Mandatum link is a JWT too;
-// its media type and its mdt claim mark it as not this format's.
+// considers any other signed JWT plausible.
 func (Adapter) Detect(data []byte) chain.Confidence {
 	raws, err := splitInput(data)
 	if err != nil {
@@ -99,9 +98,6 @@ func (Adapter) Detect(data []byte) chain.Confidence {
 		return chain.NotMine
 	}
 	typ := normType(str(head, "typ"))
-	if _, mdt := claims["mdt"]; mdt || typ == typMandatum {
-		return chain.NotMine
-	}
 	switch typ {
 	case typIDJAG, typTxnToken:
 		return chain.Certain
@@ -135,7 +131,6 @@ func (Adapter) Open(ctx context.Context, in chain.Inputs) (chain.Session, error)
 	s.reversed = in.Reverse
 	s.ignored = chain.IgnoredInputs(in, map[string]string{
 		"root-key":     "a JWT is signed by its issuer: give the issuer's keys with --trust or --jwks",
-		"revocations":  "JWTs have no standard revocation list",
 		"revoked-jtis": "JWTs have no standard revocation list",
 		"fact":         "a JWT has no authorizer facts; ask about a scope with whosent ask --scope",
 		"authorizer":   "a JWT has no authorizer code; ask about a scope with whosent ask --scope",

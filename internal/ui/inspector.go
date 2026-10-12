@@ -139,9 +139,6 @@ func (m Model) sectionLines(lines []chain.Line, iw int) []string {
 		style := m.toneOf(ln.Tone)
 		if ln.Digest > 0 {
 			style = m.digestStyle(ln.Digest - 1)
-			if ln.DigestSoft {
-				style = style.UnsetBold()
-			}
 		}
 		value := ln.Value
 		if mark := m.markGlyph(ln.Mark); mark != "" {

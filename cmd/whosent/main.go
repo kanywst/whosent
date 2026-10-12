@@ -1,4 +1,4 @@
-// Command whosent explains a Mandatum delegation chain: who sent this agent,
+// Command whosent explains a delegation chain: who sent this agent,
 // and what is it still allowed to do.
 package main
 

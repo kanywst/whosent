@@ -155,7 +155,7 @@ type glyphs struct {
 
 	pass, fail, err, unchecked, skipped, na, simulated string
 
-	pipOn, pipOff, barOn, barOff string
+	barOn, barOff string
 
 	held, narrowed, dropped, absent, widened, unknown, orphan string
 
@@ -174,7 +174,7 @@ func newGlyphs(ascii bool) glyphs {
 			vEdge: "|", vEdgeUnchecked: ":", vEdgeDead: ".", warn: "^", info: "i",
 			head: ">", headDead: ">", breakMark: "X", revokeMark: "/", pulse: "o",
 			pass: "+", fail: "x", err: "!", unchecked: "?", skipped: "-", na: ".", simulated: "/",
-			pipOn: "#", pipOff: "-", barOn: "#", barOff: "-",
+			barOn: "#", barOff: "-",
 			held: "##", narrowed: "==", dropped: "__", absent: "  ", widened: "^^", unknown: "??", orphan: "~~",
 			tl: "+", tr: "+", bl: "+", br: "+", h: "-", v: "|", teeL: "+", teeR: "+",
 			ellipsis: "~", dot: "-", arrow: "->", cursor: "_", clock: "@", vline: "|",
@@ -187,7 +187,7 @@ func newGlyphs(ascii bool) glyphs {
 		vEdge: "┃", vEdgeUnchecked: "┇", vEdgeDead: "╎", warn: "△", info: "i",
 		head: "▸", headDead: "▹", breakMark: "╳", revokeMark: "⊘", pulse: "●",
 		pass: "✓", fail: "✗", err: "!", unchecked: "○", skipped: "–", na: "·", simulated: "⊘",
-		pipOn: "●", pipOff: "◦", barOn: "▰", barOff: "▱",
+		barOn: "▰", barOff: "▱",
 		held: "▆▆", narrowed: "▃▃", dropped: "▁▁", absent: "  ", widened: "▲▲", unknown: "??", orphan: "◌◌",
 		tl: "╭", tr: "╮", bl: "╰", br: "╯", h: "─", v: "│", teeL: "├", teeR: "┤",
 		ellipsis: "…", dot: "·", arrow: "→", cursor: "▏", clock: "◷", vline: "│",

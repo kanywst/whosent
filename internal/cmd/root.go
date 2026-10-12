@@ -29,10 +29,9 @@ const (
 	ExitInconsistent = 70
 )
 
-// maxInput bounds how much of a file or stdin is read. Mandatum's MCP
-// enforcement point reads at most this much of a request (its
-// DefaultMaxBodyBytes), and a token of any format this tool reads is a few
-// kilobytes, so a larger input is not a delegation chain.
+// maxInput bounds how much of a file or stdin is read. A token of any format
+// this tool reads is a few kilobytes, so a larger input is not a delegation
+// chain.
 const maxInput = 1 << 20
 
 // defaultSkew and maxSkew bound --skew. An adapter may narrow them for its
@@ -42,10 +41,6 @@ const (
 	defaultSkew = 30 * time.Second
 	maxSkew     = 5 * time.Minute
 )
-
-// defaultMaxAge is the oldest revocation set accepted unless --max-age says
-// otherwise.
-const defaultMaxAge = 24 * time.Hour
 
 // exitError carries an exit code out of a command without printing anything:
 // the command has already said what it had to.
@@ -81,9 +76,7 @@ type flags struct {
 	trust       string
 	jwks        []string
 	rootKeys    []string
-	revocations string
 	revokedJTIs string
-	maxAge      time.Duration
 	audience    string
 	facts       []string
 	authorizer  string
@@ -101,19 +94,19 @@ func newRoot(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
 		Use:   "whosent [FILE|-]",
 		Short: "Who sent this agent, and what is it still allowed to do?",
 		Long: `whosent opens a delegation chain and shows who it is rooted in, how
-authority narrows at every hop, and exactly where trust breaks.
+authority narrows at every hop, and where trust breaks.
 
 Formats: ` + strings.Join(reg.IDs(), ", ") + `. The format is recognised from
 the input; --format says it when the input could be more than one.
 
 The chain is read from FILE, or from stdin with "-" or when stdin is a pipe.
 
-Rules that need an input you did not give (keys, a revocation set, an
+Rules that need an input you did not give (keys, a revocation list, an
 audience) are reported as unchecked, never as passing.`,
 		Example: `  whosent demo                       take the tour
-  whosent chain.json --trust trust.json --revocations revocation.json --audience https://mcp.example.org
-  whosent check chain.json --json    a report for scripts
-  whosent ask chain.json --resource-id web.fetch --attr args.host=docs.example.org`,
+  whosent token.jwt --jwks https://idp.example.com=jwks.json --audience https://api.example.com
+  whosent check tokens.json --json   a report for scripts
+  whosent ask token.jwt --scope files:read`,
 		Args:          cobra.MaximumNArgs(1),
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -141,9 +134,7 @@ audience) are reported as unchecked, never as passing.`,
 	p.StringVar(&f.trust, "trust", "", "trust file mapping issuers to their key documents")
 	p.StringArrayVar(&f.jwks, "jwks", nil, "an issuer's keys, as ISSUER=PATH or ISSUER=https://URL (repeatable)")
 	p.StringArrayVar(&f.rootKeys, "root-key", nil, "a root key: a public key a chain may be rooted in, or a macaroon's secret; hex or a file (repeatable)")
-	p.StringVar(&f.revocations, "revocations", "", "published revocation set")
-	p.StringVar(&f.revokedJTIs, "revoked-jtis", "", "exact list of revoked identifiers, one per line, to resolve filter hits")
-	p.DurationVar(&f.maxAge, "max-age", defaultMaxAge, "oldest revocation set accepted; 0 accepts any age")
+	p.StringVar(&f.revokedJTIs, "revoked-jtis", "", "a file of revoked identifiers, one per line: Biscuit revocation ids, UCAN delegation CIDs")
 	p.StringVar(&f.audience, "audience", "", "the party the chain is presented to (checks the audience rule)")
 	p.StringArrayVar(&f.facts, "fact", nil, "a fact an authorizer supplies, such as 'operation(\"read\")', a macaroon predicate a verifier satisfies, or a Fly.io request as KEY=VALUE such as org=1 (repeatable)")
 	p.StringVar(&f.authorizer, "authorizer", "", "a file of authorizer code to evaluate the chain's checks against")
@@ -231,8 +222,8 @@ func (f *flags) inputs(cmd *cobra.Command, data []byte, source string) (chain.In
 	in := chain.Inputs{
 		Data: data, Source: source,
 		TrustFile: f.trust, JWKS: f.jwks, RootKeys: f.rootKeys,
-		Revocations: f.revocations, RevokedIDs: f.revokedJTIs, MaxAge: f.maxAge,
-		Facts: f.facts, Authorizer: f.authorizer, Reverse: f.reverse,
+		RevokedIDs: f.revokedJTIs,
+		Facts:      f.facts, Authorizer: f.authorizer, Reverse: f.reverse,
 	}
 	at, err := parseAt(f.at, time.Now())
 	if err != nil {
@@ -252,10 +243,9 @@ func (f *flags) inputs(cmd *cobra.Command, data []byte, source string) (chain.In
 		}
 	}
 	if cmd.Flags().Changed("audience") {
-		// An empty audience is never a party's identity: Mandatum's
-		// verifier refuses to be built with one. It is most often an unset
-		// variable in `--audience "$AUD"`, which deserves a usage error
-		// rather than a report about a chain checked against nothing.
+		// An empty audience is never a party's identity. It is most often
+		// an unset variable in `--audience "$AUD"`, which deserves a usage
+		// error rather than a report about a chain checked against nothing.
 		if strings.TrimSpace(f.audience) == "" {
 			return in, errors.New("--audience is empty; name the party the chain is presented to, or leave the flag out to skip the audience rule")
 		}

@@ -24,19 +24,15 @@ type Inputs struct {
 
 	// TrustFile maps issuers to their key documents; JWKS are
 	// ISSUER=PATH|URL pairs. Both name keys for formats whose links are
-	// signed by named issuers (Mandatum, JWT).
+	// signed by named issuers (JWT).
 	TrustFile string
 	JWKS      []string
 	// RootKeys are public keys a chain may be rooted in, for formats whose
 	// root is a key rather than a named issuer (Biscuit): hex, or a file.
 	RootKeys []string
 
-	// Revocations names a published revocation set, RevokedIDs an exact
-	// list of revoked identifiers, MaxAge the oldest set accepted (zero
-	// accepts any age).
-	Revocations string
-	RevokedIDs  string
-	MaxAge      time.Duration
+	// RevokedIDs names a file listing revoked identifiers, one per line.
+	RevokedIDs string
 
 	// Facts are statements an authorizer adds to evaluate checks against
 	// (Biscuit's `resource("file1")`), and Authorizer names a file of
@@ -206,7 +202,7 @@ type Adapter interface {
 }
 
 // inputFlags are the input flags in the order IgnoredInputs reports them.
-var inputFlags = []string{"trust", "jwks", "root-key", "revocations", "revoked-jtis", "audience", "fact", "authorizer"}
+var inputFlags = []string{"trust", "jwks", "root-key", "revoked-jtis", "audience", "fact", "authorizer"}
 
 // given reports whether the input a flag sets was given.
 func (in Inputs) given(flag string) bool {
@@ -217,8 +213,6 @@ func (in Inputs) given(flag string) bool {
 		return len(in.JWKS) > 0
 	case "root-key":
 		return len(in.RootKeys) > 0
-	case "revocations":
-		return in.Revocations != ""
 	case "revoked-jtis":
 		return in.RevokedIDs != ""
 	case "audience":

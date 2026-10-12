@@ -413,7 +413,7 @@ func TestDetectionClaimsOnlyUCAN(t *testing.T) {
 	}
 	notMine := map[string][]byte{
 		"jwt":          []byte("eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJhbGljZSJ9.c2ln"),
-		"mandatum":     []byte(`["eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJhbGljZSJ9.c2ln"]`),
+		"jwt bundle":   []byte(`["eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJhbGljZSJ9.c2ln"]`),
 		"biscuit text": []byte("CAESfwoVdXNlcjoxMjM0"),
 		"garbage":      []byte("hello, world"),
 		"empty":        nil,

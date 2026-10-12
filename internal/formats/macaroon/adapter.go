@@ -117,7 +117,6 @@ func (Adapter) Open(_ context.Context, in chain.Inputs) (chain.Session, error) {
 	reasons := map[string]string{
 		"trust":        "a macaroon is checked with its root key: give it with --root-key",
 		"jwks":         "a macaroon is checked with its root key: give it with --root-key",
-		"revocations":  "macaroons have no standard revocation list",
 		"revoked-jtis": "macaroons have no standard revocation list",
 		"audience":     "a macaroon names no audience; its location is shown instead",
 		"authorizer":   "a macaroon's predicates are given one by one with --fact",

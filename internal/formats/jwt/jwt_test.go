@@ -17,7 +17,6 @@ import (
 
 	jose "github.com/go-jose/go-jose/v4"
 
-	"github.com/kanywst/whosent/internal/formats/mandatum"
 	"github.com/kanywst/whosent/pkg/chain"
 	"github.com/kanywst/whosent/pkg/chain/chaintest"
 )
@@ -516,8 +515,6 @@ func TestDetect(t *testing.T) {
 		{"application/ and case do not matter", compact(`{"alg":"RS256","typ":"application/TxnToken+JWT"}`, `{"sub":"a"}`, "c2ln"), chain.Certain},
 		{"a plain JWT is plausible", compact(`{"alg":"RS256","typ":"JWT"}`, `{"sub":"a"}`, "c2ln"), chain.Plausible},
 		{"a Bearer header is read", "Bearer " + compact(`{"alg":"RS256"}`, `{"sub":"a","act":{"sub":"b"}}`, "c2ln"), chain.Certain},
-		{"a Mandatum link is not mine", compact(`{"alg":"EdDSA","typ":"mdt+jwt"}`, `{"sub":"a"}`, "c2ln"), chain.NotMine},
-		{"Mandatum claims are not mine", compact(`{"alg":"EdDSA"}`, `{"sub":"a","mdt":{}}`, "c2ln"), chain.NotMine},
 		{"garbage", "not a token", chain.NotMine},
 		{"empty", "", chain.NotMine},
 		{"a JWE", "a.b.c.d.e", chain.NotMine},
@@ -528,30 +525,6 @@ func TestDetect(t *testing.T) {
 				t.Errorf("%v, want %v", got, tt.want)
 			}
 		})
-	}
-	// Mandatum's own demo chain is never claimed Certain by this adapter.
-	for _, sc := range mandatum.New().Scenarios() {
-		s, err := sc.Open(base)
-		if err != nil {
-			t.Fatal(err)
-		}
-		c, _ := s.Evaluate(context.Background(), chain.EvalOptions{At: base})
-		_ = c
-		dir := t.TempDir()
-		if sc.Emit == nil {
-			continue
-		}
-		if _, err := sc.Emit(dir, true); err != nil {
-			t.Fatal(err)
-		}
-		data, err := os.ReadFile(filepath.Join(dir, "chain.json"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := a.Detect(data); got != chain.NotMine {
-			t.Errorf("Mandatum scenario %s is %v to the JWT adapter", sc.Name, got)
-		}
-		break
 	}
 }
 

@@ -42,7 +42,7 @@ var format = chain.Format{
 func (Adapter) Format() chain.Format { return format }
 
 // Detect claims input holding at least one UCAN delegation or invocation
-// envelope. Nothing else decodes to one: a JWT, a Mandatum chain and a
+// envelope. Nothing else decodes to one: a JWT, a bundle of JWTs and a
 // Biscuit all fail to.
 func (Adapter) Detect(data []byte) chain.Confidence {
 	in, err := readInput(data)
@@ -98,13 +98,12 @@ func optionsFrom(in chain.Inputs) (Options, error) {
 		o.RevokedSource = filepath.Base(in.RevokedIDs)
 	}
 	o.Ignored = chain.IgnoredInputs(in, map[string]string{
-		"trust":       "a UCAN issuer's key is its did:key",
-		"jwks":        "a UCAN issuer's key is its did:key",
-		"root-key":    "a UCAN issuer's key is its did:key",
-		"revocations": "UCAN delegations are revoked by CID: give them with --revoked-jtis",
-		"audience":    "the invocation names its executor itself",
-		"fact":        "a UCAN policy reads the invocation's arguments",
-		"authorizer":  "a UCAN policy reads the invocation's arguments",
+		"trust":      "a UCAN issuer's key is its did:key",
+		"jwks":       "a UCAN issuer's key is its did:key",
+		"root-key":   "a UCAN issuer's key is its did:key",
+		"audience":   "the invocation names its executor itself",
+		"fact":       "a UCAN policy reads the invocation's arguments",
+		"authorizer": "a UCAN policy reads the invocation's arguments",
 	})
 	return o, nil
 }

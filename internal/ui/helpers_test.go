@@ -10,9 +10,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/kanywst/whosent/internal/demo"
 	"github.com/kanywst/whosent/internal/formats/all"
 	"github.com/kanywst/whosent/internal/formats/fake"
+	"github.com/kanywst/whosent/pkg/chain/chaintest"
 )
 
 // demoSessions mints every registered format's demo scenarios at the fixed
@@ -25,7 +25,7 @@ func demoSessions(t *testing.T) []Session {
 	scenarios := all.Registry().Scenarios()
 	scenarios = append(scenarios, fake.New().Scenarios()...)
 	for _, sc := range scenarios {
-		s, err := sc.Open(demo.FixedBase)
+		s, err := sc.Open(chaintest.Base)
 		if err != nil {
 			t.Fatalf("minting %s: %v", sc.Name, err)
 		}
@@ -113,18 +113,20 @@ func TestDump(t *testing.T) {
 		keys           []string
 	}
 	shots := []shot{
-		{"healthy", "healthy", nil},
-		{"multifault", "multifault", nil},
-		{"unchecked", "unchecked", nil},
-		{"widened", "widened", nil},
-		{"spliced-raw", "spliced", []string{"r"}},
-		{"expired-scrubbed", "healthy", []string{"t", "right", "right", "right", "]", "]"}},
-		{"revoke-sim", "healthy", []string{"right", "x"}},
-		{"ask", "healthy", []string{"a"}},
-		{"answer", "healthy", []string{"a", "enter"}},
-		{"answer-widened", "widened", []string{"a", "enter"}},
-		{"help", "healthy", []string{"?"}},
-		{"stacked-link", "multifault", []string{"tab"}},
+		{"jwt-healthy", "jwt-bundle-healthy", nil},
+		{"jwt-widened", "jwt-bundle-widened", nil},
+		{"jwt-unchecked", "jwt-unchecked", nil},
+		{"biscuit-denied", "biscuit-denied", nil},
+		{"ucan-healthy", "ucan-healthy", nil},
+		{"ucan-revoked", "ucan-revoked", nil},
+		{"macaroon-healthy", "macaroon-healthy", nil},
+		{"jwt-raw", "jwt-bundle-healthy", []string{"r"}},
+		{"ucan-scrubbed", "ucan-healthy", []string{"t", "right", "right", "right", "]", "]"}},
+		{"revoke-sim", "ucan-healthy", []string{"right", "x"}},
+		{"ask", "ucan-healthy", []string{"a"}},
+		{"answer", "ucan-healthy", []string{"a", "enter"}},
+		{"help", "ucan-healthy", []string{"?"}},
+		{"stacked-link", "ucan-revoked", []string{"tab"}},
 	}
 	sizes := [][2]int{{140, 45}, {90, 30}, {200, 60}, {60, 18}}
 	for _, s := range shots {

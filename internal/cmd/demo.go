@@ -8,11 +8,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/kanywst/whosent/internal/demo"
 	"github.com/kanywst/whosent/internal/ui"
 	"github.com/kanywst/whosent/internal/version"
 	"github.com/kanywst/whosent/pkg/chain"
 )
+
+// fixedBase is the base time --fixed mints at, the same one emitted fixtures
+// use: 2026-09-12 08:00 UTC.
+var fixedBase = time.Date(2026, 9, 12, 8, 0, 0, 0, time.UTC)
 
 func newDemo(f *flags, reg *chain.Registry, stdout io.Writer) *cobra.Command {
 	var emit string
@@ -29,12 +32,11 @@ func newDemo(f *flags, reg *chain.Registry, stdout io.Writer) *cobra.Command {
 		Short: "Mint example chains and open them, or write them out as fixtures",
 		Long: `demo mints delegation chains with throwaway keys and opens them in the
 interactive view. With no scenario it tours them all; n and p switch between
-them. Each scenario brings its own keys, revocation set and audience, so the
+them. Each scenario brings its own keys, revocation list and audience, so the
 input flags do not apply.
 
 With --emit DIR it writes one scenario's files instead, with a manifest.json
-naming the scenario and holding the exact whosent check command (a Mandatum
-scenario's also records what that command must report). Emitted
+naming the scenario and holding the exact whosent check command. Emitted
 fixtures use a fixed base time, so they are the same bytes on every run.
 
 Scenarios: ` + fmt.Sprint(names()),
@@ -80,7 +82,7 @@ Scenarios: ` + fmt.Sprint(names()),
 			}
 			base := time.Now()
 			if fixed {
-				base = demo.FixedBase
+				base = fixedBase
 			}
 			scenarios := reg.Scenarios()
 			if len(args) == 1 {

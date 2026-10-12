@@ -70,15 +70,13 @@ Sleep 400ms
 Type "q"
 Sleep 400ms
 
-# A Mandatum chain with three faults, which a verifier alone reports one of.
-# Then simulate revoking the first link: everything below it dies.
-Type "whosent demo multifault --fixed"
+# A UCAN chain, each hop signed. Simulate revoking the middle delegation:
+# everything below it dies, nothing above.
+Type "whosent demo ucan-healthy --fixed"
 Sleep 400ms
 Enter
 Sleep 3s
-Left
-Sleep 300ms
-Left
+Right
 Sleep 600ms
 Type "x"
 Sleep 2s

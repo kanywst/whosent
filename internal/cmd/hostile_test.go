@@ -10,11 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kanywst/whosent/internal/mandatum/jose"
-	"github.com/kanywst/whosent/internal/mandatum/mda"
-	"github.com/kanywst/whosent/internal/mandatum/revoke"
-
-	"github.com/kanywst/whosent/internal/demo"
+	"github.com/kanywst/whosent/internal/formats/all"
 	"github.com/kanywst/whosent/internal/termsafe"
 )
 
@@ -22,11 +18,16 @@ import (
 // the screen and draw a fake verdict, write the clipboard (OSC 52), rewrite
 // the line with a carriage return, forge a new line, reverse the text that
 // follows (bidi override), and an 8-bit CSI as a C1 code point.
+// hostileWord is hostile without its spaces, for a value read as one word
+// (a scope).
+var hostileWord = strings.ReplaceAll(hostile, " ", "")
+
 const hostile = "\x7f\x1b[2J\x1b[H✅ VALID: every rule checked\x1b[8m\x1b]52;c;aGk=\x07\rOK\nforged line\u202eevil\u009b31m\u2028"
 
-// hostileChain mints a two-link chain whose every attacker-chosen string is
-// hostile, and which fails enough rules (V5, V6, V8, V9) that the library's
-// error text, quoting those strings, reaches every section of the report.
+// hostileChain mints a bundle of two exchanged JWTs whose every
+// attacker-chosen string is hostile, and which fails enough rules (the
+// second exchange splices in a stranger and gains a scope) that error text
+// quoting those strings reaches every section of the report.
 func hostileChain(t *testing.T, dir string) []string {
 	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(nil)
@@ -35,45 +36,32 @@ func hostileChain(t *testing.T, dir string) []string {
 	}
 	now := time.Now()
 	h := func(s string) string { return s + hostile }
-	capOf := func(id string) mda.Capability {
-		return mda.Capability{
-			Resource:   mda.ResourcePattern{Type: h("mcp_tool"), ID: h(id), Tags: []string{h("tag")}},
-			Action:     mda.ActionPattern{Name: h("invoke")},
-			Conditions: map[string]mda.Condition{h("args.host"): {In: []string{h("docs"), h("www")}}},
+	iss, kid := h("https://idp"), h("kid")
+	mint := func(claims map[string]any) string {
+		hdr, _ := json.Marshal(map[string]any{"alg": "EdDSA", "kid": kid, "typ": "at+jwt"})
+		body, _ := json.Marshal(claims)
+		input := base64.RawURLEncoding.EncodeToString(hdr) + "." + base64.RawURLEncoding.EncodeToString(body)
+		return input + "." + base64.RawURLEncoding.EncodeToString(ed25519.Sign(priv, []byte(input)))
+	}
+	actor := func(sub string, inner map[string]any) map[string]any {
+		a := map[string]any{"sub": h(sub), "iss": iss, "sub_profile": h("ai_agent")}
+		if inner != nil {
+			a["act"] = inner
 		}
+		return a
 	}
-	root := mda.Sponsor{Issuer: h("https://idp"), Subject: h("alice"), AuthenticationMethods: []string{h("pwd")}}
-	c0 := mda.Claims{
-		Issuer: h("idp"), Subject: h("planner"), Audience: h("aud"),
-		IssuedAt: now.Add(-time.Minute).Unix(), ExpiresAt: now.Add(time.Hour).Unix(), ID: h("jti-0"),
-		Mandatum: mda.Mandatum{
-			Version: mda.Version, Root: root, MaxDepth: 2, Capabilities: []mda.Capability{capOf("search")},
-			Sequence: &mda.Sequence{MaxInvocations: 10, Constraints: []mda.Constraint{{
-				ID: h("rule"), Forbid: mda.ActionMatcher{ResourceTags: []string{h("w")}}, After: mda.ActionMatcher{ResourceTags: []string{h("r")}},
-			}}},
-		},
-	}
-	raw0, err := jose.Sign(c0, priv, h("kid"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	other := root
-	other.Subject = h("mallory")
-	c1 := mda.Claims{
-		Issuer: c0.Subject, Subject: h("fetcher"), Audience: c0.Audience,
-		IssuedAt: c0.IssuedAt, ExpiresAt: now.Add(30 * time.Minute).Unix(), ID: h("jti-1"),
-		Mandatum: mda.Mandatum{
-			Version: mda.Version, Root: other, Parent: mda.Digest(raw0), Depth: 1, MaxDepth: 0,
-			Capabilities: []mda.Capability{capOf("search"), capOf("wipe")},
-			Sequence:     &mda.Sequence{MaxInvocations: 5, Constraints: []mda.Constraint{{ID: h("added"), Forbid: mda.ActionMatcher{Action: h("x")}, After: mda.ActionMatcher{Action: h("y")}}}},
-		},
-	}
-	raw1, err := jose.Sign(c1, priv, h("kid"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	t0 := mint(map[string]any{
+		"iss": iss, "sub": h("alice"), "aud": h("aud"), "jti": h("jti-0"), "client_id": h("chat"),
+		"iat": now.Add(-time.Minute).Unix(), "exp": now.Add(time.Hour).Unix(),
+		"scope": h("files:read"), "act": actor("planner", nil), "may_act": map[string]any{"sub": h("fetcher"), "iss": iss},
+	})
+	t1 := mint(map[string]any{
+		"iss": iss, "sub": h("alice"), "aud": h("aud"), "jti": h("jti-1"), "client_id": h("fetcher"),
+		"iat": now.Add(-time.Minute).Unix(), "exp": now.Add(2 * time.Hour).Unix(),
+		"scope": h("files:read") + " " + h("admin"), "act": actor("fetcher", actor("mallory", nil)),
+	})
 
-	chain, _ := json.Marshal([]string{string(raw0), string(raw1)})
+	tokens, _ := json.Marshal([]string{t0, t1})
 	write := func(name string, data []byte) string {
 		p := filepath.Join(dir, name)
 		if err := os.WriteFile(p, data, 0o600); err != nil {
@@ -82,24 +70,16 @@ func hostileChain(t *testing.T, dir string) []string {
 		return p
 	}
 	jwks, _ := json.Marshal(map[string]any{"keys": []map[string]string{{
-		"kty": "OKP", "crv": "Ed25519", "x": base64.RawURLEncoding.EncodeToString(pub),
+		"kty": "OKP", "crv": "Ed25519", "kid": kid, "x": base64.RawURLEncoding.EncodeToString(pub),
 	}}})
 	write("jwks.json", jwks)
 	// A trust file rather than --jwks: the hostile issuer contains "=",
 	// which is where --jwks splits.
-	trustFile, _ := json.Marshal(map[string]any{"issuers": map[string]any{c0.Issuer: map[string]string{"jwks_file": "jwks.json"}}})
-	set, err := revoke.NewSet([]string{c0.ID}, 0.001, 1, now.Add(-time.Minute))
-	if err != nil {
-		t.Fatal(err)
-	}
-	enc, err := set.Encode()
-	if err != nil {
-		t.Fatal(err)
-	}
+	trustFile, _ := json.Marshal(map[string]any{"issuers": map[string]any{iss: map[string]string{"jwks_file": "jwks.json"}}})
 	return []string{
-		write("chain.json", chain),
+		write("tokens.json", tokens),
+		"--format", "jwt",
 		"--trust", write("trust.json", trustFile),
-		"--revocations", write("revocation.json", enc),
 		"--audience", "https://elsewhere",
 	}
 }
@@ -125,9 +105,9 @@ func TestHumanOutputNeverCarriesRawControlCharacters(t *testing.T) {
 	args := hostileChain(t, dir)
 	runs := map[string][]string{
 		"check":      append([]string{"check"}, args...),
-		"check-bare": {"check", args[0]},
-		"ask":        append([]string{"ask", "--resource-type", "mcp_tool" + hostile, "--resource-id", "search" + hostile, "--attr", "args.host=docs" + hostile}, args...),
-		"ask-bare":   {"ask", args[0], "--resource-id", "wipe" + hostile},
+		"check-bare": {"check", args[0], "--format", "jwt"},
+		"ask":        append([]string{"ask", "--scope", "admin" + hostileWord}, args...),
+		"ask-bare":   {"ask", args[0], "--format", "jwt", "--scope", "files:read" + hostileWord},
 	}
 	for name, a := range runs {
 		t.Run(name, func(t *testing.T) {
@@ -146,15 +126,17 @@ func TestHumanOutputNeverCarriesRawControlCharacters(t *testing.T) {
 		t.Errorf("the real verdict is missing:\n%s", out)
 	}
 
-	for _, n := range demo.Names() {
-		t.Run("demo/"+n, func(t *testing.T) {
-			_, a := emit(t, n)
-			_, out, errOut := runCmd(t, "", append([]string{"check"}, a...)...)
-			assertClean(t, "stdout", out)
-			assertClean(t, "stderr", errOut)
-			_, out, errOut = runCmd(t, "", append([]string{"ask", "--resource-id", "web.fetch"}, a...)...)
-			assertClean(t, "stdout", out)
-			assertClean(t, "stderr", errOut)
+	for _, sc := range all.Registry().Scenarios() {
+		if sc.Emit == nil {
+			continue
+		}
+		t.Run("demo/"+sc.Name, func(t *testing.T) {
+			a := emitScenario(t, sc.Name)
+			for _, cmd := range [][]string{{"check"}, {"ask"}} {
+				_, out, errOut := runCmd(t, "", append(cmd, a...)...)
+				assertClean(t, "stdout", out)
+				assertClean(t, "stderr", errOut)
+			}
 		})
 	}
 }
@@ -166,7 +148,7 @@ func TestJSONOutputEscapesHostileStrings(t *testing.T) {
 	args := hostileChain(t, dir)
 	for _, a := range [][]string{
 		append([]string{"check", "--json"}, args...),
-		append([]string{"ask", "--json", "--resource-id", "search" + hostile}, args...),
+		append([]string{"ask", "--json", "--scope", "admin" + hostileWord}, args...),
 	} {
 		_, out, _ := runCmd(t, "", a...)
 		if !json.Valid([]byte(out)) {

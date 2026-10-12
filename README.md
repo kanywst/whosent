@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Built with Bubble Tea](https://img.shields.io/badge/Built%20with-Bubble%20Tea-B7A0E8.svg)](https://github.com/charmbracelet/bubbletea)
 
-Who sent this agent? A TUI for delegation chains: JWT token exchange (RFC 8693 `act`), [Biscuit](https://www.biscuitsec.org), [UCAN](https://github.com/ucan-wg/spec), Mandatum and macaroons. It shows the human at the root, how authority narrows hop by hop, and where the chain breaks.
+Who sent this agent? A TUI for delegation chains: JWT token exchange (RFC 8693 `act`), [Biscuit](https://www.biscuitsec.org), [UCAN](https://github.com/ucan-wg/spec) and macaroons. It shows the human at the root, how authority narrows hop by hop, and where the chain breaks.
 
 ![whosent demo](demo.gif)
 
@@ -92,22 +92,6 @@ UCAN 1.0 delegations from the subject down to an invocation, checked against the
 | U8 | the invocation names its proofs and every one is supplied, or the invoker is the subject |
 | U9 | no delegation's CID is on the `--revoked-jtis` list |
 
-### Mandatum
-
-[Mandatum](https://github.com/kanywst/mandatum) chains (archived). Every run is cross-checked with the embedded v0.2.0 reference verifier; a disagreement exits 70.
-
-| Rule | Checks |
-| :--: | :--- |
-| V1 | the link parses, is well formed, commits to its parent's digest, and its depth follows the parent's |
-| V2 | custody: each link is issued by the subject of the link above it |
-| V3 | the issuer signed these exact bytes, with a key you supplied |
-| V4 | not issued in the future and not expired, within the skew |
-| V5 | attenuation: capabilities, expiry, depth, sequence constraints and audience only narrow |
-| V6 | every link names the same human sponsor, authenticated the same way |
-| V7 | the chain is no deeper than the sponsor allowed |
-| V8 | no link is revoked; revoking one revokes everything below it |
-| V9 | the leaf is addressed to this resource server |
-
 ### Macaroons
 
 libmacaroons tokens and Fly.io tokens (`FlyV1 fm2_...`), one link per caveat. Cross-checked on every run with go-macaroon or superfly/macaroon. A Fly.io token's Organization and App caveats restrict requests: without one they are not checked, and `--fact org=ID --fact action=r` gives one.
@@ -166,7 +150,7 @@ How authority narrows
       = kept  ~ narrowed  - dropped  + added  ✗ widened (violation)
 ```
 
-`--json` prints schema `whosent.chain/v1`, the same for every format. `--json --native` prints the format's own report (Mandatum: `whosent.report/v1`). A flag the format does not use is reported as `Ignored: --flag (why)`.
+`--json` prints schema `whosent.chain/v1`, the same for every format. `--json --native` prints the format's own report. A flag the format does not use is reported as `Ignored: --flag (why)`.
 
 | Verdict | Exit | Meaning |
 | :--- | :--: | :--- |
@@ -185,23 +169,21 @@ How authority narrows
 | JWT | `--scope files:read`, used at `--audience` |
 | Biscuit | `--resource-id` and `--action` become `resource(...)` and `operation(...)` facts for the authorizer; `--policy` replaces its policies (the answer is then at most `CONDITIONAL`) |
 | UCAN | `--action /msg/send` as the command, with `--field 'args={...}'` for its arguments |
-| Mandatum | `--resource-id`, `--action`, `--resource-type`, `--tag`, `--attr`, or a `tools/call` request with `--attr-from-args` |
 | Macaroon | Fly.io: `--action rw --field org=ID [--field app=ID]`. libmacaroons: `--field 'predicates=a; b'` |
 
 ## Inputs
 
 | Flag | For | What it supplies |
 | :--- | :--- | :--- |
-| `--jwks ISSUER=PATH` or `ISSUER=https://URL` | JWT, Mandatum | an issuer's key document; repeatable |
-| `--trust FILE` | JWT, Mandatum | a file mapping issuers to key documents (below) |
+| `--jwks ISSUER=PATH` or `ISSUER=https://URL` | JWT | an issuer's key document; repeatable |
+| `--trust FILE` | JWT | a file mapping issuers to key documents (below) |
 | `--root-key KEY` | Biscuit, Macaroon | Biscuit: a root public key (`ed25519/...`, `secp256r1/...`, or a file). Macaroon: the root key (hex, `text:SECRET`, or a file) |
-| `--audience AUD` | JWT, Mandatum | the party the chain is presented to |
+| `--audience AUD` | JWT | the party the chain is presented to |
 | `--fact FACT`, `--authorizer FILE` | Biscuit, Macaroon | authorizer facts and policies; for a macaroon, a satisfied predicate |
-| `--revocations FILE` | Mandatum | a published revocation set |
-| `--revoked-jtis FILE` | Biscuit, UCAN, Mandatum | revoked ids, one per line: block revocation ids, delegation CIDs, or jtis |
+| `--revoked-jtis FILE` | Biscuit, UCAN | revoked ids, one per line: block revocation ids or delegation CIDs |
 | `--at TIME` | all | evaluate at another time: RFC 3339, unix seconds, or `+25m` / `-1h` |
 | `--skew DURATION` | all | clock skew tolerance, at most 5m (default 30s) |
-| `--reverse` | Mandatum | the chain was handed over leaf first |
+| `--reverse` | JWT | the tokens were handed over newest first |
 
 The trust file:
 
@@ -225,7 +207,7 @@ The trust file:
 | `t` | time mode: a timeline of every link, and `←` `→` move the clock |
 | `[` `]` `shift+←` `shift+→` | move the clock in big steps |
 | `0` | back to the time the chain was opened at |
-| `x` | simulate revoking the selected link; again to undo (Biscuit, UCAN and Mandatum) |
+| `x` | simulate revoking the selected link; again to undo (Biscuit and UCAN) |
 | `X` | clear every simulated revocation |
 | `a` | ask whether the chain would permit a request |
 | `n` `p` | next or previous scenario, in the demo tour |
@@ -244,7 +226,6 @@ Report a vulnerability through a [private advisory](https://github.com/kanywst/w
 
 ## Related
 
-- [mandatum](https://github.com/kanywst/mandatum): the Mandatum specification and library (archived). Its v0.2.0 verifier is embedded in [`internal/mandatum`](internal/mandatum).
 - [biscuit-cli](https://github.com/eclipse-biscuit/biscuit-cli) creates and attenuates Biscuit tokens.
 - [y509](https://github.com/kanywst/y509) does the same job for X.509 certificate chains.
 
