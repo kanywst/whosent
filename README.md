@@ -4,11 +4,9 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Built with Bubble Tea](https://img.shields.io/badge/Built%20with-Bubble%20Tea-B7A0E8.svg)](https://github.com/charmbracelet/bubbletea)
 
-Who sent this agent? A terminal viewer for delegation chains: OAuth token exchange (RFC 8693 `act`, ID-JAG, Txn-Token, Entra agent tokens), [Biscuit](https://www.biscuitsec.org), [UCAN](https://github.com/ucan-wg/spec), Mandatum and macaroons. It shows the human at the root, how authority narrows hop by hop, and exactly where trust breaks.
+Who sent this agent? A TUI for delegation chains: JWT token exchange (RFC 8693 `act`), [Biscuit](https://www.biscuitsec.org), [UCAN](https://github.com/ucan-wg/spec), Mandatum and macaroons. It shows the human at the root, how authority narrows hop by hop, and where the chain breaks.
 
 ![whosent demo](demo.gif)
-
-An agent acting for a person rarely holds a credential of its own. It holds a token someone exchanged for it, often several hops away from the human who started the work. whosent opens that token, or the series of tokens, and answers three questions at a glance: who is this rooted in, what can the agent at the end still do, and if the chain does not hold, at which hop it stops holding.
 
 ## Install
 
@@ -32,41 +30,29 @@ scoop install kanywst/whosent
 
 ## Quick start
 
-Start with the tour. It mints example chains in every format with throwaway keys, one per failure mode, and opens them; `n` and `p` switch between them.
-
 ```bash
-whosent demo                       # every scenario
-whosent demo jwt-bundle-widened    # one of them
+whosent demo                       # example chains in every format; n and p switch
 whosent demo --list
-```
-
-Then open your own:
-
-```bash
 whosent token.jwt --jwks https://idp.example.com=jwks.json --audience https://api.example.com
-pbpaste | whosent --jwks https://idp.example.com=jwks.json    # a pasted token, "Bearer " prefix and all
-whosent token.b64 --root-key root.pub --fact 'operation("read")' --fact 'resource("orders")'
+pbpaste | whosent --jwks https://idp.example.com=jwks.json    # "Bearer " prefix is fine
+whosent token.b64 --root-key root.pub --fact 'operation("read")'
 ```
 
-Without keys the chain still opens. The rules that need them are shown as not checked, never as passing.
+Without keys the chain still opens. Rules that need them are shown as not checked, never as passing.
 
 ## Formats
 
-The format is recognised from the input. `--format jwt|biscuit|ucan|mandatum|macaroon` says it when the input could be more than one.
+The format is recognised from the input; `--format` picks one when it is ambiguous. [docs/formats.md](docs/formats.md) has the details of each.
 
 ### JWT token exchange
 
-A single JWT names its subject and, in nested `act` claims, who acted for it. whosent draws the subject as the root and the actors oldest first, with the current actor (the outermost `act`) last. It understands the profiles built on RFC 8693: ID-JAG (`typ: oauth-id-jag+jwt`, the grant behind MCP's enterprise-managed authorization), Txn-Tokens (`typ: txntoken+jwt`), and Microsoft Entra agent tokens, which have no `act` but name the acting application and its agent facets.
-
-What one token can prove is limited, and whosent says so. RFC 8693 section 4.1 makes only the token's own claims and the current actor authoritative; prior actors are the issuer's word, with no signature of theirs in the token. They are drawn as **asserted**, in amber and never ticked, and a VALID single token says in its headline that the prior actors are not a verified chain.
-
-Given the tokens of successive exchanges instead (a JSON array of compact JWS strings, or one per line, oldest first), each token is checked on its own and each exchange against the token it replaced. That turns a list of actors into a chain that breaks at a specific hop. **Rules J7 to J10 are whosent's own consistency checks, derived from RFC 8693 and the drafts built on it; no specification defines them as a verification procedure.** See [docs/jwt.md](docs/jwt.md).
+One token with nested `act` claims, or a bundle of exchanged tokens, oldest first. Also ID-JAG, Txn-Tokens and Entra agent tokens. Prior actors in one token are the issuer's word (RFC 8693 section 4.1), so they are drawn as asserted, not verified. J7 to J10 are whosent's own checks between exchanges, not a standard procedure.
 
 | Rule | Checks |
 | :--: | :--- |
-| J1 | a compact JWS with a JSON header and claims, signed with RS, PS, ES or EdDSA. `alg: none`, HMAC and unknown critical headers are refused |
+| J1 | a compact JWS signed with RS, PS, ES or EdDSA; `alg: none`, HMAC and unknown critical headers are refused |
 | J2 | the signature verifies against the keys you configured for the issuer the token names |
-| J3 | `iat`, `nbf` and `exp` within the skew. The last token must hold now; an earlier one, when the next was issued |
+| J3 | `iat`, `nbf` and `exp` within the skew; an earlier token must have held when the next was issued |
 | J4 | the last token is addressed to `--audience` |
 | J5 | the current actor is an object with a `sub`; a missing `iss` is a warning, a missing `sub_profile` a note |
 | J6 | an exchanged token's actor is the party the previous token's `may_act` names |
@@ -77,40 +63,26 @@ Given the tokens of successive exchanges instead (a JSON array of compact JWS st
 
 ### Biscuit
 
-A Biscuit token is a chain of signed blocks: the authority block, signed by the root key, then attenuation blocks, each signed with the key the block before it named. A block cannot add rights; it can only add checks. whosent draws one link per block, named by the block's `context` string, and shows authority narrowing as the checks pile up.
-
-Signatures (v0 and v1 payloads, Ed25519 and P-256, third-party blocks, open and sealed tokens) are verified by whosent's own code, and the checks are evaluated by its own Datalog engine, ported from the Rust reference. Agreement with the reference rests on the official sample corpus: for all 38 sample tokens, every block prints byte for byte as the reference prints it, and every authorizer reaches the same policy, the same failed checks in the same order and the same facts. Where the corpus does not reach (exotic regular expressions, Datalog that runs longer than the reference's default time limit), the two could differ.
+One link per block. Signatures and the Datalog authorizer are whosent's own code, checked against the specification's 38 sample tokens.
 
 | Rule | Checks |
 | :--: | :--- |
 | B1 | the token and every block decode, and each next key is valid |
 | B2 | the block's Datalog version is 3.0 to 3.3, and it uses only what that version allows |
-| B3 | each block's signature verifies; the authority block needs `--root-key`, the later blocks are verified against each other without it |
-| B4 | a third-party block's external signature verifies (v1; the legacy v0 form is refused, as the reference does by default) |
+| B3 | each block's signature verifies, from `--root-key` down; without it nothing is vouched for, though a tampered block still fails |
+| B4 | a third-party block's external signature verifies (v1 only, as the reference does by default) |
 | B5 | the proof: an open token's secret matches the last next key, or a sealed token's seal verifies |
 | B6 | the block's symbols and keys do not overlap earlier ones and every reference resolves |
-| B7 | the authorizer's facts and policies satisfy the token's checks. Without `--fact` or `--authorizer`, only expiry checks are evaluated, against the evaluation time |
+| B7 | the authorizer's facts and policies satisfy the token's checks; without `--fact` or `--authorizer`, only expiry checks |
 | B8 | no block's revocation id is on the `--revoked-jtis` list |
-
-Get a token to inspect with the [biscuit CLI](https://github.com/eclipse-biscuit/biscuit-cli):
-
-```bash
-biscuit keypair --only-private-key > root.key
-biscuit keypair --from-file root.key --only-public-key > root.pub
-echo 'right("orders", "read");' | biscuit generate --private-key-file root.key - > token.b64
-biscuit attenuate token.b64 --block 'check if operation("read");' > attenuated.b64
-whosent attenuated.b64 --root-key root.pub
-```
 
 ### UCAN
 
-A UCAN 1.0 chain is a series of delegations, each signed by its issuer's `did:key` and addressed to the next, ending in an invocation whose `prf` lists them from the subject's own. whosent draws the subject as the root, one link per delegation and the invocation last, and shows authority narrowing as the command gets longer and the policies pile up. Input is a container, a JSON array of base64 tokens, or the tokens one per line.
-
-Everything is checked by whosent's own code. go-ucan v1.2.0 reads only the release-candidate tags and departs from the specification's policy semantics, so agreement rests on the specification's own 1.0.0 fixtures: all 20 invocation cases give the expected outcome, as do the delegation and policy fixtures.
+UCAN 1.0 delegations from the subject down to an invocation, checked against the specification's 1.0.0 fixtures.
 
 | Rule | Checks |
 | :--: | :--- |
-| U1 | the envelope is canonical DAG-CBOR with a varsig header and a `ucan/dlg@1.0.0` or `ucan/inv@1.0.0` payload whose fields are well formed |
+| U1 | canonical DAG-CBOR envelope with a varsig header and a well-formed `ucan/dlg@1.0.0` or `ucan/inv@1.0.0` payload |
 | U2 | the signature verifies against the issuer's `did:key` (Ed25519, P-256, secp256k1); other DID methods are not checked |
 | U3 | `nbf` and `exp` hold at the evaluation time, within the skew |
 | U4 | the first delegation is issued by its subject, and each token by the audience of the delegation above it |
@@ -122,9 +94,7 @@ Everything is checked by whosent's own code. go-ucan v1.2.0 reads only the relea
 
 ### Mandatum
 
-[Mandatum](https://github.com/kanywst/mandatum) chains are signed links from a named human down to the acting agent, where each link commits to its parent by digest, may only narrow what it was given, and can be revoked on its own. It is the format with the most to check per hop, rules V1 to V9 of the [specification](docs/mandatum-spec.md).
-
-Every diagnosis also runs the Mandatum v0.2.0 reference verifier, embedded unchanged in [`internal/mandatum`](internal/mandatum), on the same chain with the same answers. If the two disagree, or the verifier cannot run, the reference verdict wins, the screen says so, and the exit code is 70.
+[Mandatum](https://github.com/kanywst/mandatum) chains (archived). Every run is cross-checked with the embedded v0.2.0 reference verifier; a disagreement exits 70.
 
 | Rule | Checks |
 | :--: | :--- |
@@ -138,13 +108,9 @@ Every diagnosis also runs the Mandatum v0.2.0 reference verifier, embedded uncha
 | V8 | no link is revoked; revoking one revokes everything below it |
 | V9 | the leaf is addressed to this resource server |
 
-A Mandatum chain is read as a JSON array of compact JWS strings, as an MCP `tools/call` request carrying it in `params._meta["io.github.kanywst.mandatum/chain"]`, or one serialization per line.
-
 ### Macaroons
 
-A macaroon is minted from a root key only its issuer holds, and every caveat appended narrows it. whosent draws one link per caveat, and a third-party caveat's discharge macaroon under the caveat it answers. It reads the libmacaroons formats (binary v1 and v2, base64 or raw, and their JSON) with a root and its discharges back to back, and Fly.io tokens (`FlyV1 fm2_...`).
-
-The chain is one HMAC: without `--root-key` every caveat reads but none is vouched for, and with it a tampered macaroon fails as a whole, since an HMAC cannot say which caveat changed. Predicates are the application's own, so whosent judges only time caveats and the exact predicates you give with `--fact`, as libmacaroons' `satisfy_exact` does. Verification is whosent's own code, compared on every run with [go-macaroon](https://github.com/go-macaroon/macaroon) or [superfly/macaroon](https://github.com/superfly/macaroon); a disagreement exits 70. libmacaroons' own verifier tests are in the test corpus.
+libmacaroons tokens and Fly.io tokens (`FlyV1 fm2_...`), one link per caveat. Cross-checked on every run with go-macaroon or superfly/macaroon. A VALID Fly.io token means the token holds; its Organization and App caveats restrict requests, which `ask` checks.
 
 | Rule | Checks |
 | :--: | :--- |
@@ -153,13 +119,13 @@ The chain is one HMAC: without `--root-key` every caveat reads but none is vouch
 | M3 | every third-party caveat has its discharge, used once, and no discharge is left over |
 | M4 | the caveat's sealed key opens under the chain; a Fly.io discharge is bound to its token |
 | M5 | time caveats (`time < T`, `time-before T`, Fly.io `ValidityWindow`) hold at the evaluation time |
-| M6 | first-party predicates are among the `--fact` predicates; without `--fact` they are not checked. A Fly.io caveat restricts the request instead of the token, so it is the token's authority, not a check, and `ask` tests a request against it |
+| M6 | libmacaroons first-party predicates are among the `--fact` predicates; without `--fact` they are not checked |
 
 ## Checking from a script
 
-`check` prints the same diagnosis without the interactive view. A verifier stops at the first failure; `check` evaluates every rule for every link, so a chain with three faults shows all three. To try it on a known chain, write a demo scenario out as files. `--emit` prints the command that checks them.
+`check` prints the same diagnosis without the view. It evaluates every rule for every link, so a chain with three faults shows all three. `demo --emit` writes a scenario out as files with the command that checks them.
 
-A bundle of three exchanged JWTs, where the last exchange gained a scope:
+Three exchanged JWTs, where the last exchange gained a scope:
 
 ```bash
 whosent demo --emit fixture jwt-bundle-widened
@@ -200,64 +166,27 @@ How authority narrows
       = kept  ~ narrowed  - dropped  + added  ✗ widened (violation)
 ```
 
-A Biscuit token whose second block only allows reads, asked to authorize a write:
-
-```bash
-whosent demo --emit fixture biscuit-denied
-cd fixture
-whosent check token.b64 --root-key root.pub --authorizer authorizer.datalog --revoked-jtis revoked-ids.txt --at 2026-09-12T08:01:00Z
-```
-
-```text
-=== token.b64 · 3 links · Biscuit · 3 blocks, open, root key ed25519/705fbac01f55...
-    at 2026-09-12T08:01:00Z, authorizer authorizer.datalog
-
-❌ INVALID: the chain breaks at link 1, and no authority reaches below it
-
-  #  issuer → subject                   B1 B2 B3 B4 B5 B6 B7 B8
-  0  root key → billing service          ✓  ✓  ✓  ·  ·  ✓  ✓  ✓
-  1  billing service → payments team     ✓  ✓  ✓  ·  ·  ✓  ✗  ✓
-  2  payments team → reporting bot       ✓  ✓  ✓  ·  ✓  ✓  ✓  ✓   (no authority reaches here)
-     ✓ pass  ✗ fail  ! could not evaluate  ? not checked  - skipped  · does not apply
-
-Findings
-  ✗ B7 link 1: block 1's check fails: check if operation("read") [https://github.com/eclipse-biscuit/biscuit/blob/main/SPECIFICATIONS.md#authorizer]
-
-How authority narrows
-  0 → 1  billing service → payments team
-      ~ check if operation("read")
-      ~ check if time($t), $t <= 2026-09-12T08:40:00Z
-  1 → 2  payments team → reporting bot
-      ~ check if resource($r), {"orders", "invoices"}.contains($r)
-      ~ check if time($t), $t <= 2026-09-12T08:20:00Z
-      = kept  ~ narrowed  - dropped  + added  ✗ widened (violation)
-```
-
-`--json` prints the report as schema `whosent.chain/v1`, the same shape for every format (`format`, `verdict`, `break_at`, `root`, `rules`, `links`, `hops`, `findings`, `checked_against`, and `missing`, `ignored` and `valid_scope` when there are any), and nothing else on stdout. An input flag the format has no use for is never silently dropped: `check` says `Ignored: --flag (why)`, and the view lists it under what the chain was checked against. `--json --native` prints the format's own report instead; Mandatum's is `whosent.report/v1`.
+`--json` prints schema `whosent.chain/v1`, the same for every format. `--json --native` prints the format's own report (Mandatum: `whosent.report/v1`). A flag the format does not use is reported as `Ignored: --flag (why)`.
 
 | Verdict | Exit | Meaning |
 | :--- | :--: | :--- |
-| VALID | 0 | every rule was checked for every link, and holds |
-| INVALID | 1 | a rule failed, or could not be evaluated, so an enforcement point denies |
+| VALID | 0 | every rule was checked and holds |
+| INVALID | 1 | a rule failed or could not be evaluated |
 | INCOMPLETE | 2 | nothing failed, but something was not checked (1 with `--strict`) |
 | | 3 | the command line or an input file is wrong |
-| | 70 | whosent disagrees with a format's reference implementation (Mandatum's embedded verifier); a bug in whosent, please report it |
+| | 70 | whosent disagrees with a format's reference implementation; please report it |
 
 ### Asking about one request
 
-In the interactive view, `a` asks whether the chain would permit a request, in that format's terms: a scope and an audience for a JWT, facts and a policy for Biscuit, a command and its arguments for UCAN, an action on a resource for Mandatum, a request for a Fly.io token or predicates for a macaroon. The answer is traced link by link, so you see where authority for it ends or where it appeared from nowhere, and it says how far it can be relied on: `AUTHORITATIVE` (the chain verified with every input), `CONDITIONAL` (nothing failed, but some rules were not checked) or `HYPOTHETICAL` (the chain does not verify, so it permits nothing; this is only what the leaf claims).
-
-From a script, `whosent ask` asks the same question and exits 0 only when a VALID chain permits it. Each format takes its own question, a flag it has no use for is refused, and nothing a question needs is filled in from a default:
+`a` in the view, or `whosent ask`, asks whether the chain permits one request, traced link by link. The answer is `AUTHORITATIVE` (the chain verified with every input), `CONDITIONAL` (some rules were not checked) or `HYPOTHETICAL` (the chain does not verify). `ask` exits 0 only for a VALID chain that permits the request. Each format takes its own question:
 
 | Format | Question |
 | --- | --- |
 | JWT | `--scope files:read`, used at `--audience` |
-| Biscuit | the authorizer (`--authorizer`, `--fact`) runs over the token for a request: `--resource-id` and `--action` become `resource(...)` and `operation(...)` facts; it decides with the authorizer's own policies unless `--policy` gives others, which makes the answer at most `CONDITIONAL` |
+| Biscuit | `--resource-id` and `--action` become `resource(...)` and `operation(...)` facts for the authorizer; `--policy` replaces its policies (the answer is then at most `CONDITIONAL`) |
 | UCAN | `--action /msg/send` as the command, with `--field 'args={...}'` for its arguments |
 | Mandatum | `--resource-id`, `--action`, `--resource-type`, `--tag`, `--attr`, or a `tools/call` request with `--attr-from-args` |
-| Macaroon | Fly.io: `--action rw` with `--field org=ID` and optionally `--field app=ID`, checked with Fly.io's own access check. libmacaroons: `--field 'predicates=a; b'` |
-
-`--field KEY=VALUE` sets any of a format's question fields by name.
+| Macaroon | Fly.io: `--action rw --field org=ID [--field app=ID]`. libmacaroons: `--field 'predicates=a; b'` |
 
 ## Inputs
 
@@ -265,16 +194,16 @@ From a script, `whosent ask` asks the same question and exits 0 only when a VALI
 | :--- | :--- | :--- |
 | `--jwks ISSUER=PATH` or `ISSUER=https://URL` | JWT, Mandatum | an issuer's key document; repeatable |
 | `--trust FILE` | JWT, Mandatum | a file mapping issuers to key documents (below) |
-| `--root-key KEY` | Biscuit, Macaroon | Biscuit: a root public key, as hex (`ed25519/...`, `secp256r1/...`) or a file; repeatable. Macaroon: the root key, as hex, `text:SECRET` or a file |
+| `--root-key KEY` | Biscuit, Macaroon | Biscuit: a root public key (`ed25519/...`, `secp256r1/...`, or a file). Macaroon: the root key (hex, `text:SECRET`, or a file) |
 | `--audience AUD` | JWT, Mandatum | the party the chain is presented to |
-| `--fact FACT`, `--authorizer FILE` | Biscuit, Macaroon | Biscuit: the authorizer's facts and policies the token's checks run against. Macaroon: `--fact` names a predicate the verifier satisfies |
+| `--fact FACT`, `--authorizer FILE` | Biscuit, Macaroon | authorizer facts and policies; for a macaroon, a satisfied predicate |
 | `--revocations FILE` | Mandatum | a published revocation set |
-| `--revoked-jtis FILE` | Biscuit, UCAN, Mandatum | for Biscuit, revoked block revocation ids, one per line; for UCAN, revoked delegation CIDs; for Mandatum, the exact jti list that resolves a hit in the revocation set's filter |
+| `--revoked-jtis FILE` | Biscuit, UCAN, Mandatum | revoked ids, one per line: block revocation ids, delegation CIDs, or jtis |
 | `--at TIME` | all | evaluate at another time: RFC 3339, unix seconds, or `+25m` / `-1h` |
 | `--skew DURATION` | all | clock skew tolerance, at most 5m (default 30s) |
 | `--reverse` | Mandatum | the chain was handed over leaf first |
 
-Flags a format does not use have no effect, and every format says which ones it ignored: in `check` output, in the view and in `--json`.
+The trust file:
 
 ```json
 {"issuers": {
@@ -303,28 +232,20 @@ Flags a format does not use have no effect, and every format says which ones it 
 | `?` | help |
 | `q` `esc` | quit, back |
 
-Time mode and the revocation simulation re-run the whole diagnosis, so what you see at `+40m` is what `check --at +40m` would report. A simulated revocation is labelled as one everywhere, and never reaches `check` or `ask`. JWTs have no standard revocation, so the JWT format offers no revocation simulation.
-
-`NO_COLOR` is respected; every state also has its own glyph. `--ascii` (or `WHOSENT_ASCII=1`) uses ASCII only, and `--no-motion` turns the animation off.
-
-## Two rules everywhere
-
-- **Not checked is never green.** A rule that needs an input you did not give is shown as not checked, with its own glyph and colour. VALID means every rule was checked. `AUTHORITATIVE` means a VALID chain with no missing input.
-- **Asserted is not verified.** A link nothing could verify (a prior JWT actor) is drawn as asserted, and its unverifiable rules read as not applicable rather than as passing.
+Time mode shows what `check --at` would report. A simulated revocation is labelled as one and never reaches `check` or `ask`. `NO_COLOR`, `--ascii` (or `WHOSENT_ASCII=1`) and `--no-motion` are respected.
 
 ## Security
 
-- Every string that comes from a chain, a key document or a library error is escaped before it reaches the terminal. Control characters, escape sequences and bidi overrides are shown as visible escapes, so a chain cannot clear the screen, print a fake verdict, write your clipboard over OSC 52, or disguise a name. `--json` output is escaped the same way.
-- whosent touches the network only to fetch key documents from the https URLs you configure. Which keys belong to which issuer comes from your flags or trust file, never from the chain: a JWT's `jku`, `x5u`, `x5c` and `jwk` headers are not used. Fetches must stay on https through any redirect, and are capped at 1 MiB and 5 seconds.
-- Input is capped at 1 MiB. A Mandatum chain is read to at most 64 links, a JWT bundle to 64 tokens and 64 nested actors, a Biscuit token to 32 blocks of 256 KiB, a UCAN chain to 64 tokens, a macaroon input to 16 macaroons of 128 caveats.
+- Strings from a chain, a key document or a library error are escaped before they reach the terminal, so a chain cannot clear the screen, print a fake verdict or write the clipboard. `--json` is escaped the same way.
+- The network is used only to fetch key documents from https URLs you configure. Keys never come from the chain (a JWT's `jku`, `x5u`, `x5c` and `jwk` are ignored). Fetches stay on https through redirects and are capped at 1 MiB and 5 seconds.
+- Input is capped at 1 MiB, with per-format limits on links, blocks and caveats.
 
 Report a vulnerability through a [private advisory](https://github.com/kanywst/whosent/security/advisories/new). See [SECURITY.md](SECURITY.md).
 
 ## Related
 
-- [mandatum](https://github.com/kanywst/mandatum) is the Mandatum specification and its reference Go library, now archived. whosent embeds the v0.2.0 verifier, attenuation rules and matcher in [`internal/mandatum`](internal/mandatum) rather than reimplementing them, and carries a copy of the [specification](docs/mandatum-spec.md).
-- [biscuit-cli](https://github.com/eclipse-biscuit/biscuit-cli) creates, attenuates and inspects Biscuit tokens; its `inspect` prints each block. whosent's Biscuit test corpus is the specification's own [samples](https://github.com/eclipse-biscuit/biscuit/tree/main/samples/current), vendored with their license.
-- [libmacaroons](https://github.com/rescrv/libmacaroons) defines the binary formats; its verifier tests are vendored with their license. Fly.io tokens are read with [superfly/macaroon](https://github.com/superfly/macaroon), the code Fly.io verifies them with.
+- [mandatum](https://github.com/kanywst/mandatum): the Mandatum specification and library (archived). Its v0.2.0 verifier is embedded in [`internal/mandatum`](internal/mandatum).
+- [biscuit-cli](https://github.com/eclipse-biscuit/biscuit-cli) creates and attenuates Biscuit tokens.
 - [y509](https://github.com/kanywst/y509) does the same job for X.509 certificate chains.
 
 ## Development

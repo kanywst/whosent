@@ -6,7 +6,7 @@ This document is the contract. [`pkg/chain/chaintest`](../pkg/chain/chaintest) i
 
 ## Where it goes
 
-- The adapter lives in `internal/formats/<id>`, where `<id>` is the lower-case name typed after `--format` (`biscuit`, `jwt`).
+- The adapter lives in `internal/formats/<id>`, where `<id>` is the name typed after `--format` (`jwt`, `biscuit`, `ucan`, `mandatum`, `macaroon`).
 - It is added to `Adapters()` in [`internal/formats/all`](../internal/formats/all/all.go), and nowhere else. That list is the order `--format` names formats in and the order the demo tour visits them.
 - Its test calls `chaintest.Run(t, New())`. `internal/formats/all` runs the suite over every registered format too.
 
@@ -27,7 +27,7 @@ type Session interface {
 
 // Optional: a session that can answer "would this chain permit X".
 type Asker interface {
-    AskFields() []chain.AskField
+    AskFields() []chain.AskField // Required fields must be given; nothing is filled from a default
     AskPrefill(c *chain.Chain, row int) map[string]string
     Ask(ctx context.Context, c *chain.Chain, values map[string]string) (*chain.AskResult, error)
 }
@@ -36,7 +36,7 @@ type Asker interface {
 ### Format
 
 - `ID`, `Name`, `RootRole` ("sponsor", "issuer", "root key") and `Rules`.
-- `Rules` are the format's checks, in the order the view lists them. IDs are short and stable (`B-SIG`, `J-TIME`); a title is a word or two (`signature`, `time`). Every link's `Checks` has exactly one entry per rule, in this order.
+- `Rules` are the format's checks, in the order the view lists them. IDs are short and stable (`B3`, `J3`); a title is a word or two (`signature`, `time`). Every link's `Checks` has exactly one entry per rule, in this order.
 - `Caps` switches the view's features on. Switch off what the format cannot honestly support: `TimeScrub` only when links have lifetimes, `RevokeSim` only when links have identifiers a revocation names, `Ask` only when the session implements `Asker`, `PerHopSignatures` only when each link is signed by the one before it.
 
 ### Detect
@@ -50,7 +50,7 @@ type Asker interface {
 - Reads the chain from `Inputs.Data` and whatever inputs the format uses: `JWKS` and `TrustFile` for issuer keys, `RootKeys` for a root public key, `Revocations`, `RevokedIDs` and `MaxAge`, `Audience`, `Facts` and `Authorizer` for an authorizer, `At` and `Skew`.
 - An error is a usage error (exit 3): a file that cannot be read, a malformed value. A chain that fails its rules is not an error.
 - The command line has already checked what every format shares: `--at` parses, `--skew` is within 5m, `--audience` is not empty, `--jwks` has the `ISSUER=LOCATION` shape. An adapter may narrow these, never widen them.
-- Inputs a format has no use for are ignored, and the `Chain` says so where it matters (a `CheckedAgainst` row, a `Missing` entry).
+- Inputs a format has no use for are listed in `Chain.Ignored` (`chain.IgnoredInputs`), which `check`, `--json` and the view all show.
 
 ### Evaluate
 
@@ -61,7 +61,7 @@ type Asker interface {
 
 These are the promises the view relies on and cannot check itself. `chaintest` checks each of them.
 
-- **VALID means every rule was checked and holds.** Any `StatusFail` or `StatusError` makes the chain INVALID; any `StatusUnchecked` without a failure makes it INCOMPLETE, with `IncompleteReason` saying, in terms of inputs a person would supply, what was missing.
+- **VALID means every rule was checked and holds.** Any `StatusFail` or `StatusError` makes the chain INVALID; any `StatusUnchecked` without a failure makes it INCOMPLETE, with `IncompleteReason` naming the missing input. If VALID covers less than it sounds (a Fly.io token whose request caveats were not tested), say so in `ValidScope`.
 - **Unchecked never looks checked.** A link with an unchecked rule is `LinkIncomplete`, never `LinkOK`, or the rail draws it as verified.
 - **Asserted is not unchecked.** When a link's place in the chain is only the issuer's say-so, such as a prior actor in a JWT's nested `act` (RFC 8693 section 4.1: informational), set `Link.Asserted`. The rules nothing could check for that link, whatever was supplied, are `StatusNotApplicable`: `StatusUnchecked` would claim an input could have checked them. The view draws an asserted link amber and dashed, labelled "asserted", never like a verified one.
 - **Everything below a break is unreached.** `BreakAt` is the first link that fails (or is revoked); every link after it has `Unreached` set and `UnreachedBy` naming the link above. The view greys them and their matrix columns out.
@@ -96,7 +96,7 @@ Sections are lists of `Line`s: `LineKV` (key and wrapped value), `LineText` (a s
 
 - Every format has at least one scenario, and its names start with the format ID (`biscuit-healthy`). Names are unique across formats.
 - `Scenario.Open(base)` mints the chain at `base` with every input it needs, so a demo shows no unchecked rule it did not mean to. Keys are deterministic from fixed seeds, so a demo is the same bytes on every run.
-- `Scenario.Emit`, when set, writes fixture files and returns the `whosent check` command that checks them. Fixtures are never committed: a committed token expires on its own.
+- `Scenario.Emit`, when set, writes fixture files through [`internal/safewrite`](../internal/safewrite) and returns the `whosent check` command that checks them. Fixtures are never committed: a committed token expires on its own.
 
 ## Test checklist
 
