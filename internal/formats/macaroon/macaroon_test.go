@@ -73,7 +73,8 @@ func TestEachScenarioBreaksWhereItShould(t *testing.T) {
 		{"macaroon-tampered", chain.VerdictInvalid, 0, map[string][]int{RuleSignature: {0, 1, 2, 3, 4}, RuleBinding: {4}}},
 		{"macaroon-expired", chain.VerdictInvalid, 3, map[string][]int{RuleTime: {3}}},
 		{"macaroon-unchecked", chain.VerdictIncomplete, -1, map[string][]int{}},
-		{"macaroon-fly", chain.VerdictValid, -1, map[string][]int{}},
+		{"macaroon-fly", chain.VerdictIncomplete, -1, map[string][]int{}},
+		{"macaroon-fly-request", chain.VerdictValid, -1, map[string][]int{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -361,13 +362,14 @@ func TestOpenReadsKeysAndRefusesWhatItCannot(t *testing.T) {
 
 func TestIgnoredInputsAreReported(t *testing.T) {
 	aud := "x"
-	s, err := New().Open(context.Background(), chain.Inputs{Data: []byte(flyDemo(chaintest.Base)), Audience: &aud, Facts: []string{"a = b"}})
+	s, err := New().Open(context.Background(), chain.Inputs{Data: []byte(flyDemo(chaintest.Base)), Audience: &aud, Facts: []string{"org=4242", "action=r"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := evaluate(t, s.(*session), time.Minute)
 	got := strings.Join(c.Ignored, " ")
-	if !strings.Contains(got, "--audience") || !strings.Contains(got, "--fact") {
+	// --fact is the Fly.io request, so only --audience is ignored.
+	if !strings.Contains(got, "--audience") || strings.Contains(got, "--fact") {
 		t.Errorf("ignored: %v", c.Ignored)
 	}
 }
@@ -451,13 +453,13 @@ func FuzzDecode(f *testing.F) {
 	})
 }
 
-// A Fly.io token's caveats are its authority: the token is VALID, and a
-// request is judged against them by Fly.io's own access check.
+// Without a request a Fly.io token is INCOMPLETE; ask supplies one, and
+// Fly.io's own access check judges it against the caveats.
 func TestAskJudgesAFlyRequestWithFlyiosAccessCheck(t *testing.T) {
 	s := open(t, "macaroon-fly")
 	c := evaluate(t, s, time.Minute)
-	if c.Verdict != chain.VerdictValid {
-		t.Fatalf("the Fly.io demo is %s: %v", c.Verdict, c.Findings())
+	if c.Verdict != chain.VerdictIncomplete {
+		t.Fatalf("the Fly.io demo with no request is %s: %v", c.Verdict, c.Findings())
 	}
 	tests := []struct {
 		name    string

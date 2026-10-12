@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/superfly/macaroon/flyio"
+
 	"github.com/kanywst/whosent/pkg/chain"
 )
 
@@ -121,7 +123,13 @@ func (Adapter) Open(_ context.Context, in chain.Inputs) (chain.Session, error) {
 		"authorizer":   "a macaroon's predicates are given one by one with --fact",
 	}
 	if b.dialect == "fly" {
-		reasons["fact"] = "Fly.io caveats are typed, not predicates; --fact applies to libmacaroons-style tokens"
+		// A Fly.io request is given as KEY=VALUE facts, the keys ask uses,
+		// so check can judge the caveats that restrict it.
+		a, req, err := flyRequest(in.Facts)
+		if err != nil {
+			return nil, err
+		}
+		s.flyReq, s.flyReqText = a, req
 	} else {
 		s.facts = map[string]bool{}
 		for _, f := range in.Facts {
@@ -131,6 +139,27 @@ func (Adapter) Open(_ context.Context, in chain.Inputs) (chain.Session, error) {
 	}
 	s.ignored = chain.IgnoredInputs(in, reasons)
 	return s, nil
+}
+
+// flyRequest reads --fact KEY=VALUE pairs into a Fly.io request. No facts
+// is no request.
+func flyRequest(facts []string) (*flyio.Access, []string, error) {
+	if len(facts) == 0 {
+		return nil, nil, nil
+	}
+	values := map[string]string{}
+	for _, f := range facts {
+		k, v, ok := strings.Cut(f, "=")
+		if !ok {
+			return nil, nil, fmt.Errorf("--fact %q: a Fly.io request is given as KEY=VALUE (org, action, app, feature, machine, volume, mutation)", f)
+		}
+		values[strings.TrimSpace(k)] = strings.TrimSpace(v)
+	}
+	a, req, err := flyAccess(values)
+	if err != nil {
+		return nil, nil, fmt.Errorf("--fact: %w", err)
+	}
+	return a, req, nil
 }
 
 // readRootKey reads a root key: hex, `text:SECRET` for a secret written
@@ -176,10 +205,17 @@ type session struct {
 	keySource  string
 	facts      map[string]bool
 	factsGiven bool
-	skew       time.Duration
-	at         time.Time
-	source     string
-	ignored    []string
+	// flyReq is the Fly.io request given with --fact, if any: the caveats
+	// that restrict requests are judged against it.
+	flyReq     *flyio.Access
+	flyReqText []string
+	// tokenOnly leaves the request caveats out of the verdict: ask judges
+	// the token on its own and tests the request itself.
+	tokenOnly bool
+	skew      time.Duration
+	at        time.Time
+	source    string
+	ignored   []string
 	// demo is set for a scenario: it names where the inputs came from.
 	demo string
 	// refuse, set only by tests, replaces the reference implementation's

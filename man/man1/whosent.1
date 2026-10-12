@@ -221,7 +221,9 @@ An empty value is an error.
 .BI \-\-fact " FACT"
 A Datalog fact the authorizer supplies, such as \fBoperation("read")\fR, for
 evaluating a Biscuit token's checks. For a macaroon, a predicate the verifier
-satisfies exactly, such as \fBaccount = 3735928559\fR. Repeatable.
+satisfies exactly, such as \fBaccount = 3735928559\fR; for a Fly.io token, a
+request as \fIKEY\fR=\fIVALUE\fR (\fBorg\fR, \fBaction\fR, \fBapp\fR, \fBfeature\fR,
+\fBmachine\fR, \fBvolume\fR, \fBmutation\fR). Repeatable.
 .TP
 .BI \-\-authorizer " FILE"
 A file of Biscuit authorizer Datalog (facts, checks and policies) to evaluate
@@ -454,9 +456,9 @@ bound to its token.
 Time: time caveats hold at the evaluation time.
 .TP
 .B M6
-Caveat: first-party predicates are among the \fB\-\-fact\fR predicates.
-A Fly.io caveat restricts the request, not the token: it is shown as the
-token's authority, and \fBask\fR tests a request against it.
+Caveat: first-party predicates are among the \fB\-\-fact\fR predicates;
+Fly.io caveats allow the \fB\-\-fact\fR request. Without \fB\-\-fact\fR they
+are not checked.
 .SH EXIT STATUS
 .B check
 exits:

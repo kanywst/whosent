@@ -200,10 +200,6 @@ type Chain struct {
 	// an INCOMPLETE chain is not verified: "no keys for 2 issuers, no
 	// revocation set".
 	IncompleteReason string
-	// ValidScope, when set, says what a VALID verdict covers and what it
-	// does not, for a format whose token can verify while its authority is
-	// left to a question: "the token verifies; no request was tested".
-	ValidScope string
 	// Summary describes what was checked and how, in short parts the view
 	// joins into one line under the verdict when nothing else is shown
 	// there: "3 links", "json-array", "skew 30s".

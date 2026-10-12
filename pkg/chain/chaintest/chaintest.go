@@ -359,7 +359,10 @@ func CheckAsk(t *testing.T, a chain.Asker, c *chain.Chain) {
 	if res.Permitted && c.Verdict == chain.VerdictInvalid {
 		t.Error("an INVALID chain permitted something")
 	}
-	if res.Permitted && !res.Conditional && c.Verdict != chain.VerdictValid {
+	if res.Judged != "" && c.Verdict == chain.VerdictInvalid {
+		t.Error("an answer that rests on a judged chain, from an INVALID chain")
+	}
+	if res.Permitted && !res.Conditional && c.Verdict != chain.VerdictValid && res.Judged != chain.VerdictValid {
 		t.Errorf("an unconditional permission from a %s chain", c.Verdict)
 	}
 	for _, s := range res.Steps {

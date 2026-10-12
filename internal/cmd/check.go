@@ -115,9 +115,6 @@ func verdictLine(c *chain.Chain) string {
 		// section 4.1), so "every link was checked" would be false for
 		// them. Exit 0 still holds: the token itself verifies, and only
 		// its current actor is authoritative.
-		if c.ValidScope != "" {
-			return "✅ VALID: " + c.ValidScope
-		}
 		if n := assertedLinks(c); n > 0 {
 			return fmt.Sprintf("✅ VALID: every checkable rule holds, but %d prior %s the issuer's word, not verified hop by hop",
 				n, plural(n, "actor is", "actors are"))

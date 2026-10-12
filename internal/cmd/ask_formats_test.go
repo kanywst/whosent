@@ -155,19 +155,27 @@ func TestAMacaroonDisagreementExitsSeventy(t *testing.T) {
 	}
 }
 
-// A Fly.io token can verify while what it allows is left to ask. The report
-// must say no request was tested, not that every rule was checked.
-func TestAValidFlyTokenSaysNoRequestWasTested(t *testing.T) {
-	args := append([]string{"check"}, emitScenario(t, "macaroon-fly")...)
-	code, out, errOut := runCmd(t, "", args...)
-	if code != ExitValid {
-		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, errOut)
+// A Fly.io token's caveats restrict requests, so without one the token is
+// INCOMPLETE; with one, check judges the caveats as Fly.io would.
+func TestFlyCaveatsNeedARequest(t *testing.T) {
+	base := append([]string{"check"}, emitScenario(t, "macaroon-fly")...)
+	tests := []struct {
+		name  string
+		extra []string
+		code  int
+		want  string
+	}{
+		{"no request leaves the caveats unchecked", nil, ExitIncomplete, "restricts requests"},
+		{"a request the caveats allow is VALID", []string{"--fact", "org=4242", "--fact", "app=123", "--fact", "action=r"}, ExitValid, "VALID"},
+		{"a request a caveat refuses is INVALID", []string{"--fact", "org=4242", "--fact", "app=123", "--fact", "action=d"}, ExitInvalid, "refuses the request"},
+		{"a fact that is not KEY=VALUE is a usage error", []string{"--fact", "org"}, ExitUsage, "KEY=VALUE"},
 	}
-	if strings.Contains(out, "every rule checked for every link") || !strings.Contains(out, "no request was tested") {
-		t.Errorf("the verdict does not say what VALID covers:\n%s", out)
-	}
-	_, js, _ := runCmd(t, "", append(args, "--json")...)
-	if !strings.Contains(js, `"valid_scope"`) {
-		t.Errorf("JSON has no valid_scope: %s", js)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code, out, errOut := runCmd(t, "", append(append([]string{}, base...), tt.extra...)...)
+			if code != tt.code || !strings.Contains(out+errOut, tt.want) {
+				t.Errorf("exit %d (want %d), want %q\nstdout: %s\nstderr: %s", code, tt.code, tt.want, out, errOut)
+			}
+		})
 	}
 }

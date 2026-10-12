@@ -121,6 +121,10 @@ type AskResult struct {
 	// Conditional is set when Permitted holds only if rules that were not
 	// checked pass.
 	Conditional bool
+	// Judged is the verdict of the chain the answer rests on, when the
+	// question itself supplies what the open chain lacked (a Fly.io
+	// request). Empty means the open chain's own verdict.
+	Judged Verdict
 	// Tone is how the verdict is drawn, and Mark its glyph.
 	Tone Tone
 	Mark Mark

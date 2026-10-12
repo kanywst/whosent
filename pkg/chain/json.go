@@ -19,7 +19,6 @@ type JSONChain struct {
 	Verdict          Verdict     `json:"verdict"`
 	BreakAt          int         `json:"break_at"`
 	IncompleteReason string      `json:"incomplete_reason,omitempty"`
-	ValidScope       string      `json:"valid_scope,omitempty"`
 	Root             JSONRoot    `json:"root"`
 	Rules            []JSONRule  `json:"rules"`
 	Links            []JSONLink  `json:"links"`
@@ -111,7 +110,7 @@ func (c *Chain) JSON() JSONChain {
 	out := JSONChain{
 		Schema: SchemaVersion, Format: c.Format.ID, Source: c.Source, InputFormat: c.InputFormat,
 		Normalizations: c.Normalizations, Reversed: c.Reversed, At: c.At.UTC(), Verdict: c.Verdict,
-		BreakAt: c.BreakAt, IncompleteReason: c.IncompleteReason, ValidScope: c.ValidScope,
+		BreakAt: c.BreakAt, IncompleteReason: c.IncompleteReason,
 		Root:     JSONRoot{Name: c.Root.Name, Kind: c.Root.Kind, Details: c.Root.Details},
 		Rules:    []JSONRule{},
 		Links:    []JSONLink{},

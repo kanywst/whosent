@@ -80,6 +80,8 @@ type evaluation struct {
 	// flyRestrictions counts Fly caveats that restrict a request it
 	// cannot see.
 	unknownPreds, flyRestrictions int
+	// flyRefused is set when a caveat refused the --fact request.
+	flyRefused bool
 }
 
 func (s *session) evaluate(at time.Time) *chain.Chain {
@@ -332,11 +334,23 @@ func (e *evaluation) fly() {
 					n.set(RuleCaveat, chain.StatusNotApplicable, "an attestation: the third party's statement, not a restriction")
 					n.hop = []chain.Change{{Kind: chain.ChangeInfo, Text: "attests " + c.Name()}}
 				default:
-					// A restriction is the token's authority, not a
-					// condition on the token: Fly.io checks each request
-					// against it, and so does ask.
+					// A restriction holds only for a request: without one
+					// it is unchecked, as Fly.io checks nothing without one.
 					e.flyRestrictions++
-					n.set(RuleCaveat, chain.StatusNotApplicable, "restricts what a request may do; ask tests a request against it")
+					if e.s.tokenOnly {
+						n.set(RuleCaveat, chain.StatusNotApplicable, "restricts requests; ask tests this one")
+						break
+					}
+					if e.s.flyReq == nil {
+						n.fail(RuleCaveat, chain.SeverityUnchecked, "restricts requests: give one with --fact org=ID --fact action=r")
+						break
+					}
+					if perr := c.Prohibits(accessAt{Access: e.s.flyReq, at: e.at}); perr != nil {
+						e.flyRefused = true
+						n.fail(RuleCaveat, chain.SeverityFail, "refuses the request: "+perr.Error())
+					} else {
+						n.set(RuleCaveat, chain.StatusPass, "allows the request")
+					}
 				}
 			}
 			e.add(n)
@@ -357,6 +371,42 @@ func (e *evaluation) fly() {
 	}
 	if e.s.key != nil {
 		e.guard(v.ok, func() error { return flyReference(b, e.s.key) }, "superfly/macaroon")
+	}
+	if e.s.flyReq != nil && e.flyRestrictions > 0 {
+		e.flyRequestGuard(b)
+	}
+}
+
+// flyRequestGuard compares the caveat-by-caveat reading of the request with
+// superfly/macaroon's own Validate over the same caveats; a disagreement is
+// reported and the refusal stands.
+func (e *evaluation) flyRequestGuard(b *flyBundle) {
+	var cavs []fly.Caveat
+	for _, t := range append([]*flyToken{b.root}, b.discharges...) {
+		for _, c := range t.m.UnsafeCaveats.Caveats {
+			switch c.(type) {
+			case *fly.Caveat3P, *fly.BindToParentToken:
+				continue
+			}
+			if fly.IsAttestation(c) {
+				continue
+			}
+			if _, ok := c.(*fly.ValidityWindow); ok {
+				continue
+			}
+			cavs = append(cavs, c)
+		}
+	}
+	verr := fly.NewCaveatSet(cavs...).Validate(accessAt{Access: e.s.flyReq, at: e.at})
+	if (verr != nil) != e.flyRefused {
+		e.inc = &chain.Inconsistency{
+			Banner: "INTERNAL INCONSISTENCY: superfly/macaroon's Validate and the caveats one by one judge the request differently",
+			Detail: fmt.Sprintf("Validate says %v", verr),
+		}
+		if verr != nil {
+			e.cf = append(e.cf, chain.Finding{Rule: RuleCaveat, Link: -1, Hop: -1, Severity: chain.SeverityFail,
+				Detail: "superfly/macaroon refuses the request: " + verr.Error()})
+		}
 	}
 }
 
@@ -504,13 +554,17 @@ func (e *evaluation) verdict(c *chain.Chain) {
 		if e.unknownPreds > 0 {
 			why = append(why, "no predicates")
 		}
+		if e.s.b.dialect == "fly" && e.flyRestrictions > 0 && e.s.flyReq == nil && !e.s.tokenOnly {
+			why = append(why, "no request")
+		}
 		c.IncompleteReason = strings.Join(why, ", ")
 	default:
 		c.Verdict = chain.VerdictValid
-		if e.s.b.dialect == "fly" && e.flyRestrictions > 0 {
-			c.ValidScope = fmt.Sprintf("the token verifies, but no request was tested against its %d restricting caveat(s); ask tests one", e.flyRestrictions)
-			c.Headline = fmt.Sprintf("The Fly.io token holds. No request was tested: its caveats (%d) limit requests, and ask tests one.",
-				e.flyRestrictions)
+		if e.s.b.dialect == "fly" {
+			c.Headline = fmt.Sprintf("The Fly.io token holds, and its caveats allow %s.", strings.Join(e.s.flyReqText, ", "))
+			if e.s.flyReq == nil {
+				c.Headline = "The Fly.io token holds: its signature, every discharge and every caveat checked."
+			}
 			return
 		}
 		c.Headline = fmt.Sprintf("The root key's macaroon holds through %d link%s: its signature, every discharge and every caveat checked.", len(c.Links), plural(len(c.Links)))
@@ -545,7 +599,12 @@ func (e *evaluation) checkedAgainst() ([]chain.KV, []string) {
 		}
 	}
 	if e.flyRestrictions > 0 {
-		kvs = append(kvs, chain.KV{Key: "requests", Value: fmt.Sprintf("none tested: %d caveat(s) restrict them; use ask", e.flyRestrictions), Tone: chain.ToneWarn})
+		if e.s.flyReq != nil {
+			kvs = append(kvs, chain.KV{Key: "request", Value: strings.Join(e.s.flyReqText, ", ")})
+		} else {
+			kvs = append(kvs, chain.KV{Key: "request", Value: fmt.Sprintf("none given: %d caveat(s) restrict requests and are unchecked", e.flyRestrictions), Tone: chain.ToneWarn})
+			missing = append(missing, "a request (--fact org=ID --fact action=r)")
+		}
 	}
 	kvs = append(kvs, chain.KV{Key: "time", Value: fmt.Sprintf("%s, skew %s", e.at.UTC().Format("2006-01-02 15:04 UTC"), e.s.skew)})
 	return kvs, missing
