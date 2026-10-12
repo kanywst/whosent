@@ -1,12 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/kanywst/whosent/internal/formats/all"
+	"github.com/kanywst/whosent/pkg/chain"
 )
 
 // emitScenario writes any format's scenario and returns the check command's
@@ -115,5 +117,37 @@ func TestValidWithAssertedActorsSaysSo(t *testing.T) {
 	}
 	if !strings.Contains(out, "2 prior actors are the issuer's word") {
 		t.Errorf("does not say the prior actors are only asserted:\n%s", out)
+	}
+}
+
+// The macaroon guard records a disagreement with go-macaroon or
+// superfly/macaroon as an Inconsistency (pinned in that package); the
+// command must turn it into exit 70 for macaroons too, in both forms.
+func TestAMacaroonDisagreementExitsSeventy(t *testing.T) {
+	orig := evaluateFn
+	evaluateFn = func(ctx context.Context, s chain.Session, eo chain.EvalOptions) (*chain.Chain, error) {
+		c, err := orig(ctx, s, eo)
+		if err == nil {
+			c.Inconsistency = &chain.Inconsistency{Banner: "injected", Detail: "injected disagreement"}
+		}
+		return c, err
+	}
+	t.Cleanup(func() { evaluateFn = orig })
+
+	sc, err := all.Registry().Scenario("macaroon-healthy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if _, err := sc.Emit(dir, true); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"check", filepath.Join(dir, "token.txt"), "--format", "macaroon",
+		"--root-key", filepath.Join(dir, "root.key"), "--at", "2026-09-12T08:01:00Z"}
+	for _, a := range [][]string{args, append(args, "--json")} {
+		code, _, errOut := runCmd(t, "", a...)
+		if code != ExitInconsistent || !strings.Contains(errOut, "injected disagreement") {
+			t.Errorf("%v: exit %d, stderr %q", a[len(a)-1], code, errOut)
+		}
 	}
 }
