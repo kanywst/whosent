@@ -165,10 +165,10 @@ func (s *session) askFly(c *chain.Chain, values map[string]string) (*chain.AskRe
 		// The library's answer and the caveat-by-caveat reading differ:
 		// say so, and let the refusal stand.
 		ok = false
-		res.Warning = "superfly/macaroon's access check and the caveat-by-caveat reading disagree; the request is treated as refused"
+		res.Warning = "superfly/macaroon's Validate and its caveat-by-caveat Prohibits disagree; the request is treated as refused"
 		res.Inconsistency = &chain.Inconsistency{
-			Banner: "INTERNAL INCONSISTENCY: superfly/macaroon and whosent answer this request differently",
-			Detail: fmt.Sprintf("superfly/macaroon says %v, the caveats one by one say otherwise", verr),
+			Banner: "INTERNAL INCONSISTENCY: Validate and the caveats one by one answer this request differently",
+			Detail: fmt.Sprintf("Validate says %v, the caveats one by one say otherwise", verr),
 		}
 		if res.Reason == "" {
 			res.Reason = "the caveat-by-caveat reading refuses it"
@@ -254,12 +254,13 @@ func (s *session) askLib(c *chain.Chain, values map[string]string) (*chain.AskRe
 	e := &evaluation{s: &alt, at: c.At}
 	e.lib()
 	got := e.chain()
+	res0 := got.Inconsistency
 
 	req := []string{"no predicates"}
 	if len(given) > 0 {
 		req = []string{strings.Join(given, "; ")}
 	}
-	res := &chain.AskResult{Request: req, StepsTitle: "satisfied at each caveat", Values: values}
+	res := &chain.AskResult{Request: req, StepsTitle: "satisfied at each caveat", Values: values, Inconsistency: res0}
 	shown := false
 	for i, l := range got.Links {
 		step := chain.AskStep{Link: i, Outcome: chain.OutcomeCovers}
@@ -272,7 +273,7 @@ func (s *session) askLib(c *chain.Chain, values map[string]string) (*chain.AskRe
 		}
 		res.Steps = append(res.Steps, step)
 	}
-	settle(res, got, !shown, "a verifier holding these predicates accepts it, and the macaroon verifies")
+	settle(res, got, !shown && res0 == nil, "a verifier holding these predicates accepts it, and the macaroon verifies")
 	report(res, got, "satisfied", "unsatisfied")
 	res.Native = struct {
 		Schema     string   `json:"schema"`
