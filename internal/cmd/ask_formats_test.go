@@ -154,3 +154,20 @@ func TestAMacaroonDisagreementExitsSeventy(t *testing.T) {
 		}
 	}
 }
+
+// A Fly.io token can verify while what it allows is left to ask. The report
+// must say no request was tested, not that every rule was checked.
+func TestAValidFlyTokenSaysNoRequestWasTested(t *testing.T) {
+	args := append([]string{"check"}, emitScenario(t, "macaroon-fly")...)
+	code, out, errOut := runCmd(t, "", args...)
+	if code != ExitValid {
+		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, errOut)
+	}
+	if strings.Contains(out, "every rule checked for every link") || !strings.Contains(out, "no request was tested") {
+		t.Errorf("the verdict does not say what VALID covers:\n%s", out)
+	}
+	_, js, _ := runCmd(t, "", append(args, "--json")...)
+	if !strings.Contains(js, `"valid_scope"`) {
+		t.Errorf("JSON has no valid_scope: %s", js)
+	}
+}

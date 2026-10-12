@@ -508,7 +508,10 @@ func (e *evaluation) verdict(c *chain.Chain) {
 	default:
 		c.Verdict = chain.VerdictValid
 		if e.s.b.dialect == "fly" {
-			c.Headline = fmt.Sprintf("The Fly.io token holds; its caveats (%d) limit what a request may do, and ask tests one.",
+			if e.flyRestrictions > 0 {
+				c.ValidScope = fmt.Sprintf("the token verifies, but no request was tested against its %d restricting caveat(s); ask tests one", e.flyRestrictions)
+			}
+			c.Headline = fmt.Sprintf("The Fly.io token holds. No request was tested: its caveats (%d) limit requests, and ask tests one.",
 				e.flyRestrictions)
 			return
 		}
@@ -542,6 +545,9 @@ func (e *evaluation) checkedAgainst() ([]chain.KV, []string) {
 			kvs = append(kvs, chain.KV{Key: "predicates", Value: "none given: application predicates are unchecked", Tone: chain.ToneWarn})
 			missing = append(missing, "the predicates your verifier satisfies (--fact)")
 		}
+	}
+	if e.flyRestrictions > 0 {
+		kvs = append(kvs, chain.KV{Key: "requests", Value: fmt.Sprintf("none tested: %d caveat(s) restrict them; use ask", e.flyRestrictions), Tone: chain.ToneWarn})
 	}
 	kvs = append(kvs, chain.KV{Key: "time", Value: fmt.Sprintf("%s, skew %s", e.at.UTC().Format("2006-01-02 15:04 UTC"), e.s.skew)})
 	return kvs, missing
