@@ -590,3 +590,41 @@ func TestAnAssertedLinkNeverGetsATick(t *testing.T) {
 		}
 	}
 }
+
+// A chain with more links than the matrix has room for keeps its columns
+// readable: it shows a window of links around the selected one, names the
+// selected link in full, and marks the side where more links lie.
+func TestAWideMatrixKeepsItsColumnsReadable(t *testing.T) {
+	for _, w := range []int{120, 90} {
+		t.Run(fmt.Sprint(w), func(t *testing.T) {
+			m := open(t, "fake-long", w, 40)
+			for step := 0; step < 10; step++ {
+				for _, iw := range []int{w/2 - 4, w - 4} {
+					ml := m.matrixLayout(iw)
+					if ml.hi-ml.lo < len(m.report.Links) && ml.colW < minMatrixCol {
+						t.Errorf("width %d: windowed columns are %d wide", iw, ml.colW)
+					}
+					if m.sel < ml.lo || m.sel >= ml.hi {
+						t.Errorf("width %d: link %d is outside the window [%d, %d)", iw, m.sel, ml.lo, ml.hi)
+					}
+					head := ansi.Strip(m.matrixLines(iw)[0])
+					if name := fmt.Sprintf("agent-%02d", m.sel+1); !strings.Contains(head, name) {
+						t.Errorf("width %d: the selected link's name %q is not shown in full: %q", iw, name, head)
+					}
+					if ml.lo > 0 && !strings.Contains(head, "‹") {
+						t.Errorf("width %d: no mark for links to the left: %q", iw, head)
+					}
+					if ml.hi < len(m.report.Links) && !strings.Contains(head, "›") {
+						t.Errorf("width %d: no mark for links to the right: %q", iw, head)
+					}
+					for _, line := range m.matrixLines(iw) {
+						if lw := width(line); lw > iw {
+							t.Errorf("width %d: a matrix line is %d wide", iw, lw)
+						}
+					}
+				}
+				m = press(t, m, "right")
+			}
+		})
+	}
+}

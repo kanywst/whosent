@@ -93,31 +93,17 @@ func (m Model) window(lines []string, h, focus int) []string {
 // each cell what that agent holds of it.
 func (m Model) matrixLines(iw int) []string {
 	r, t, g := m.report, m.t, m.g
-	n := len(r.Links)
 	fs := m.flow()
 	if m.rows() == 0 {
 		return []string{t.muted.Render("no capabilities to show")}
 	}
 	mx := r.Matrix
 
-	// The label column is as wide as the longest label; the agent columns
-	// share the rest, up to a width past which they only spread the
-	// heatmap thin.
-	longest := 0
-	for _, row := range mx.Rows {
-		longest = max(longest, width(m.clean(row.Label)))
-	}
-	nameW := 4
-	for i := range r.Links {
-		nameW = max(nameW, min(width(m.agentName(i)), 12))
-	}
-	labelW := min(longest+4, max(iw-n*(nameW+2), 12))
-	colW := clamp((iw-labelW)/max(n, 1), 4, nameW+4)
+	ml := m.matrixLayout(iw)
 
 	var out []string
-	head := strings.Repeat(" ", labelW)
-	for i := range r.Links {
-		name := m.clip(m.agentName(i), colW-1)
+	out = append(out, m.matrixHead(ml, strings.Repeat(" ", ml.labelW), func(i int) string {
+		name := m.clip(m.agentName(i), ml.colW-1)
 		s := t.muted
 		switch {
 		case i == m.sel:
@@ -125,10 +111,8 @@ func (m Model) matrixLines(iw int) []string {
 		case m.void(i) && fs.settled:
 			s = t.slate
 		}
-		head += center(s.Render(name), colW)
-		head = m.fit(head, labelW+(i+1)*colW)
-	}
-	out = append(out, head)
+		return s.Render(name)
+	}))
 
 	for ri, row := range mx.Rows {
 		labelStyle := t.text
@@ -140,14 +124,10 @@ func (m Model) matrixLines(iw int) []string {
 				prefix = t.coral.Render("^") + " "
 			}
 		}
-		label := prefix + labelStyle.Render(m.clip(m.clean(row.Label), labelW-3))
-		line := m.fit(label, labelW)
-		for i := range r.Links {
-			line += center(m.cell(row, i, fs), colW)
-			line = m.fit(line, labelW+(i+1)*colW)
-		}
+		label := prefix + labelStyle.Render(m.clip(m.clean(row.Label), ml.labelW-3))
+		line := m.matrixRow(ml, label, func(i int) string { return m.cell(row, i, fs) })
 		if ri == m.row {
-			line = m.highlightRow(row, labelW, colW, fs)
+			line = m.highlightRow(row, ml, fs)
 		}
 		out = append(out, line)
 	}
@@ -163,7 +143,7 @@ func (m Model) matrixLines(iw int) []string {
 		}
 		return 0
 	}
-	out = append(out, m.summaryRow("reach", labelW, colW, func(i int) (string, lipgloss.Style) {
+	out = append(out, m.summaryRow("reach", ml, func(i int) (string, lipgloss.Style) {
 		if mx.RootRows == 0 {
 			return "-", t.slate
 		}
@@ -188,7 +168,7 @@ func (m Model) matrixLines(iw int) []string {
 	if anyVoid {
 		// What a void link claims, kept in sight but kept apart from what
 		// it holds.
-		out = append(out, m.summaryRow("claims", labelW, colW, func(i int) (string, lipgloss.Style) {
+		out = append(out, m.summaryRow("claims", ml, func(i int) (string, lipgloss.Style) {
 			if !m.void(i) || !fs.settled {
 				return "", t.slate
 			}
@@ -196,7 +176,7 @@ func (m Model) matrixLines(iw int) []string {
 		}))
 	}
 	for _, extra := range mx.Extra {
-		out = append(out, m.summaryRow(m.clean(extra.Label), labelW, colW, func(i int) (string, lipgloss.Style) {
+		out = append(out, m.summaryRow(m.clean(extra.Label), ml, func(i int) (string, lipgloss.Style) {
 			if i >= len(extra.Cells) {
 				return "", t.slate
 			}
@@ -221,7 +201,7 @@ func (m Model) matrixLines(iw int) []string {
 
 // highlightRow redraws a row on the selection background, keeping each
 // cell's own colour so the selection never hides what a cell says.
-func (m Model) highlightRow(row chain.Row, labelW, colW int, fs flowState) string {
+func (m Model) highlightRow(row chain.Row, ml matrixLayout, fs flowState) string {
 	t, g := m.t, m.g
 	sel := t.selected
 	labelStyle := t.bright
@@ -233,14 +213,15 @@ func (m Model) highlightRow(row chain.Row, labelW, colW int, fs flowState) strin
 			prefix = "▲ "
 		}
 	}
-	line := sel.Render(m.fit(labelStyle.Render(prefix+m.clip(m.clean(row.Label), labelW-3)), labelW))
-	for i := range m.report.Links {
+	line := sel.Render(m.fit(labelStyle.Render(prefix+m.clip(m.clean(row.Label), ml.labelW-3)), ml.labelW))
+	line += sel.Render(m.edge(ml, true, false))
+	for i := ml.lo; i < ml.hi; i++ {
 		cell := m.cell(row, i, fs)
-		pad := colW - width(cell)
+		pad := ml.colW - width(cell)
 		left := pad / 2
 		line += sel.Render(strings.Repeat(" ", left)) + sel.Render(cell) + sel.Render(strings.Repeat(" ", pad-left))
 	}
-	return line
+	return line + sel.Render(m.edge(ml, false, false))
 }
 
 // void reports whether agent i holds nothing, whatever its link claims: its
@@ -293,14 +274,100 @@ func (m Model) cell(row chain.Row, i int, fs flowState) string {
 	return "  "
 }
 
-func (m Model) summaryRow(label string, labelW, colW int, f func(int) (string, lipgloss.Style)) string {
-	line := m.fit("  "+m.t.muted.Render(label), labelW)
-	for i := range m.report.Links {
+func (m Model) summaryRow(label string, ml matrixLayout, f func(int) (string, lipgloss.Style)) string {
+	return m.matrixRow(ml, "  "+m.t.muted.Render(label), func(i int) string {
 		s, st := f(i)
-		line += center(st.Render(m.clip(s, colW-1)), colW)
-		line = m.fit(line, labelW+(i+1)*colW)
+		return st.Render(m.clip(s, ml.colW-1))
+	})
+}
+
+// matrixLayout is how the matrix spends its width: a label column, then one
+// column per link in [lo, hi). When every link fits at a readable width the
+// window is the whole chain; otherwise it slides to keep the selected link
+// in view, and an edge mark says more columns lie that way.
+type matrixLayout struct {
+	labelW, colW int
+	lo, hi       int
+	windowed     bool
+}
+
+// minMatrixCol is the narrowest column that still shows a name a reader can
+// recognise.
+const minMatrixCol = 9
+
+func (m Model) matrixLayout(iw int) matrixLayout {
+	r := m.report
+	n := max(len(r.Links), 1)
+	// The label column is as wide as the longest label; the agent columns
+	// share the rest, up to a width past which they only spread the
+	// heatmap thin.
+	longest := 0
+	for _, row := range r.Matrix.Rows {
+		longest = max(longest, width(m.clean(row.Label)))
 	}
-	return line
+	nameW := 4
+	for i := range r.Links {
+		nameW = max(nameW, min(width(m.agentName(i)), 12))
+	}
+	labelW := min(longest+4, max(iw-n*(nameW+2), 12))
+	colW := clamp((iw-labelW)/n, 4, nameW+4)
+	want := min(nameW+2, minMatrixCol)
+	if colW >= want || len(r.Links) <= 1 {
+		return matrixLayout{labelW: labelW, colW: colW, lo: 0, hi: len(r.Links)}
+	}
+	// Too many links to show at once: keep labels readable, give each
+	// visible column a readable width, and slide the window.
+	labelW = clamp(longest+4, 12, max(iw/3, 12))
+	avail := iw - labelW - 2
+	k := clamp(avail/want, 1, len(r.Links))
+	colW = clamp(avail/k, 4, nameW+4)
+	lo := clamp(m.sel-k/2, 0, len(r.Links)-k)
+	return matrixLayout{labelW: labelW, colW: colW, lo: lo, hi: lo + k, windowed: true}
+}
+
+// matrixRow lays out one line of the matrix: the label, then each visible
+// link's cell centred in its column.
+func (m Model) matrixRow(ml matrixLayout, label string, cell func(i int) string) string {
+	return m.layRow(ml, label, cell, false)
+}
+
+// matrixHead is the header line, the one that carries the window's edge
+// marks; the rows below keep the same columns without repeating them.
+func (m Model) matrixHead(ml matrixLayout, label string, cell func(i int) string) string {
+	return m.layRow(ml, label, cell, true)
+}
+
+func (m Model) layRow(ml matrixLayout, label string, cell func(i int) string, marks bool) string {
+	line := m.fit(label, ml.labelW) + m.edge(ml, true, marks)
+	start := width(line)
+	for i := ml.lo; i < ml.hi; i++ {
+		line += center(cell(i), ml.colW)
+		line = m.fit(line, start+(i-ml.lo+1)*ml.colW)
+	}
+	return line + m.edge(ml, false, marks)
+}
+
+// edge is the mark at either side of a windowed matrix: an arrow when more
+// links lie that way, a space otherwise, and nothing when there is no
+// window.
+func (m Model) edge(ml matrixLayout, left, marks bool) string {
+	if !ml.windowed {
+		return ""
+	}
+	if !marks {
+		return " "
+	}
+	more, mark := ml.hi < len(m.report.Links), "›"
+	if left {
+		more, mark = ml.lo > 0, "‹"
+	}
+	if m.g.ascii {
+		mark = map[bool]string{true: "<", false: ">"}[left]
+	}
+	if !more {
+		return " "
+	}
+	return m.t.amber.Render(mark)
 }
 
 func (m Model) legend(iw int) string {

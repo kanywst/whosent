@@ -11,6 +11,7 @@ package fake
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/kanywst/whosent/pkg/chain"
@@ -70,6 +71,8 @@ func (Adapter) Scenarios() []chain.Scenario {
 			"one signed token names three prior actors. Only the issuer vouches for them, and nothing verifies them hop by hop."),
 		mk("fake-blocks", "Blocks of checks, one forged",
 			"a root key's grant narrowed by blocks of checks; the second block's signature does not verify."),
+		mk("fake-long", "Ten hops",
+			"a grant passed down ten agents, each narrowing it a little. More links than the matrix can show at once."),
 	}
 }
 
@@ -81,8 +84,11 @@ type session struct {
 func (s session) Info() chain.Info { return chain.Info{Format: format, At: s.at} }
 
 func (s session) Evaluate(_ context.Context, eo chain.EvalOptions) (*chain.Chain, error) {
-	if s.name == "fake-blocks" {
+	switch s.name {
+	case "fake-blocks":
 		return blocks(eo.At), nil
+	case "fake-long":
+		return long(eo.At), nil
 	}
 	return asserted(eo.At), nil
 }
@@ -189,5 +195,46 @@ func blocks(at time.Time) *chain.Chain {
 				Changes: []chain.Change{{Kind: chain.ChangeNarrowed, Text: code[i]}}})
 		}
 	}
+	return c
+}
+
+// long is a chain with more links than the matrix has room for.
+func long(at time.Time) *chain.Chain {
+	const n = 10
+	c := &chain.Chain{
+		Format: format, Source: "fake-long", InputFormat: "fake", At: at,
+		Verdict: chain.VerdictValid, BreakAt: -1,
+		Summary: []string{"10 links"},
+		Root:    chain.Root{Name: "alice", Kind: "human", Details: []string{"issuer"}},
+		Matrix:  &chain.Matrix{Title: "AUTHORITY", RootRows: 2},
+	}
+	read := chain.Row{Label: "read files"}
+	write := chain.Row{Label: "write files"}
+	for i := 0; i < n; i++ {
+		name := fmt.Sprintf("agent-%02d", i+1)
+		from := "alice"
+		if i > 0 {
+			from = fmt.Sprintf("agent-%02d", i)
+		}
+		c.Links = append(c.Links, chain.Link{
+			Index: i, From: from, To: name, Readable: true, State: chain.LinkOK,
+			Checks: checks(chain.StatusPass, chain.StatusPass, chain.StatusPass),
+		})
+		read.Cells = append(read.Cells, chain.Cell{Kind: chain.CellHeld})
+		w := chain.Cell{Kind: chain.CellHeld}
+		if i >= n/2 {
+			w = chain.Cell{Kind: chain.CellAbsent, Changed: i == n/2}
+		}
+		write.Cells = append(write.Cells, w)
+		kept := 2
+		if i >= n/2 {
+			kept = 1
+		}
+		c.Matrix.Retained = append(c.Matrix.Retained, kept)
+		if i > 0 {
+			c.Hops = append(c.Hops, chain.Hop{Parent: i - 1, Child: i, Evaluable: true})
+		}
+	}
+	c.Matrix.Rows = []chain.Row{read, write}
 	return c
 }
