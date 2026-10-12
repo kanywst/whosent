@@ -7,10 +7,11 @@ require (
 	charm.land/lipgloss/v2 v2.0.6
 	filippo.io/edwards25519 v1.2.0
 	github.com/charmbracelet/x/ansi v0.11.8
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1
 	github.com/go-jose/go-jose/v4 v4.1.5
 	github.com/spf13/cobra v1.10.2
 	github.com/superfly/macaroon v0.3.2
-	github.com/vmihailenco/msgpack/v5 v5.3.5
+	github.com/vmihailenco/msgpack/v5 v5.4.1
 	golang.org/x/crypto v0.57.0
 	golang.org/x/term v0.46.0
 	google.golang.org/protobuf v1.36.12
@@ -71,7 +72,6 @@ require (
 	github.com/curioswitch/go-reassign v0.3.0 // indirect
 	github.com/daixiang0/gci v0.13.7 // indirect
 	github.com/dave/dst v0.27.3 // indirect
-	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/denis-tingaikin/go-header v0.5.0 // indirect
 	github.com/dlclark/regexp2/v2 v2.2.1 // indirect
 	github.com/ettle/strcase v0.2.0 // indirect
