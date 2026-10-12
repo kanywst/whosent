@@ -138,10 +138,9 @@ func optionsFrom(in chain.Inputs) (Options, error) {
 	}
 	o.AuthorizerSource = strings.Join(parts, " and ")
 	o.Ignored = chain.IgnoredInputs(in, map[string]string{
-		"trust":       "a Biscuit is rooted in a key: give it with --root-key",
-		"jwks":        "a Biscuit is rooted in a key: give it with --root-key",
-		"revocations": "a Biscuit is revoked by block revocation ids: give them with --revoked-jtis",
-		"audience":    "a Biscuit names no audience; give facts with --fact",
+		"trust":    "a Biscuit is rooted in a key: give it with --root-key",
+		"jwks":     "a Biscuit is rooted in a key: give it with --root-key",
+		"audience": "a Biscuit names no audience; give facts with --fact",
 	})
 	return o, nil
 }
