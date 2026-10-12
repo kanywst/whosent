@@ -114,6 +114,7 @@ fuzz:
 	go test ./internal/mandatum/jose -run '^$$' -fuzz '^FuzzParse$$' -fuzztime $(FUZZTIME)
 	go test ./internal/mandatum/verify -run '^$$' -fuzz '^FuzzVerify$$' -fuzztime $(FUZZTIME)
 	go test ./internal/mandatum/revoke -run '^$$' -fuzz '^FuzzParseSet$$' -fuzztime $(FUZZTIME)
+	go test ./internal/formats/macaroon -run '^$$' -fuzz '^FuzzDecode$$' -fuzztime $(FUZZTIME)
 
 # Clean build artifacts
 .PHONY: clean
