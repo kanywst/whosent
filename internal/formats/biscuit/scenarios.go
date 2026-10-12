@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/kanywst/whosent/internal/formats/biscuit/datalog"
+	"github.com/kanywst/whosent/internal/safewrite"
 	"github.com/kanywst/whosent/pkg/chain"
 )
 
@@ -309,7 +309,7 @@ func emit(sp spec, dir string, force bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := prepareDir(dir, force); err != nil {
+	if err := safewrite.Dir(dir, force); err != nil {
 		return "", err
 	}
 	files := map[string][]byte{
@@ -343,54 +343,9 @@ func emit(sp spec, dir string, force bool) (string, error) {
 	}
 	files["manifest.json"] = append(manifest, '\n')
 	for name, data := range files {
-		if err := writeFile(filepath.Join(dir, name), data); err != nil {
+		if err := safewrite.File(filepath.Join(dir, name), data); err != nil {
 			return "", err
 		}
 	}
 	return command, nil
-}
-
-// prepareDir creates dir 0700, or accepts an existing empty one. A
-// directory that already holds something is refused without force.
-func prepareDir(dir string, force bool) error {
-	fi, err := os.Stat(dir)
-	switch {
-	case os.IsNotExist(err):
-		return os.MkdirAll(dir, 0o700)
-	case err != nil:
-		return err
-	case !fi.IsDir():
-		return fmt.Errorf("%s exists and is not a directory", dir)
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	if len(entries) > 0 && !force {
-		return fmt.Errorf("%s is not empty; pass --force to write the fixture into it anyway", dir)
-	}
-	return nil
-}
-
-// writeFile writes through a temporary file and a rename, so the result is
-// a fresh 0600 file and a symlink at path is replaced rather than followed.
-func writeFile(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".whosent-*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	defer func() { _ = os.Remove(name) }()
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(name, path)
 }

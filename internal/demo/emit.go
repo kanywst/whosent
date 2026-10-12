@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kanywst/whosent/internal/safewrite"
 	"github.com/kanywst/whosent/internal/trust"
 	"github.com/kanywst/whosent/pkg/diagnose"
 )
@@ -38,7 +39,7 @@ type Manifest struct {
 // writing through it: a symlink planted in a shared directory is replaced,
 // and the file it pointed at is left alone.
 func (s Scenario) Emit(dir string, force bool) (Manifest, error) {
-	if err := prepareDir(dir, force); err != nil {
+	if err := safewrite.Dir(dir, force); err != nil {
 		return Manifest{}, err
 	}
 	jwksDir := filepath.Join(dir, "jwks")
@@ -66,7 +67,7 @@ func (s Scenario) Emit(dir string, force bool) (Manifest, error) {
 		}
 		sort.Strings(names)
 		for _, n := range names {
-			if err := writeFile(filepath.Join(dir, "jwks", n), s.Fixture.JWKS[n]); err != nil {
+			if err := safewrite.File(filepath.Join(dir, "jwks", n), s.Fixture.JWKS[n]); err != nil {
 				return Manifest{}, err
 			}
 		}
@@ -80,13 +81,13 @@ func (s Scenario) Emit(dir string, force bool) (Manifest, error) {
 		cmd = append(cmd, "--trust", "trust.json")
 	}
 	if s.Fixture.Revocation != nil {
-		if err := writeFile(filepath.Join(dir, "revocation.json"), s.Fixture.Revocation); err != nil {
+		if err := safewrite.File(filepath.Join(dir, "revocation.json"), s.Fixture.Revocation); err != nil {
 			return Manifest{}, err
 		}
 		cmd = append(cmd, "--revocations", "revocation.json")
 		if len(s.Fixture.RevokedJTIs) > 0 {
 			body := strings.Join(s.Fixture.RevokedJTIs, "\n") + "\n"
-			if err := writeFile(filepath.Join(dir, "revoked-jtis.txt"), []byte(body)); err != nil {
+			if err := safewrite.File(filepath.Join(dir, "revoked-jtis.txt"), []byte(body)); err != nil {
 				return Manifest{}, err
 			}
 			cmd = append(cmd, "--revoked-jtis", "revoked-jtis.txt")
@@ -120,51 +121,5 @@ func writeJSON(path string, v any) error {
 	if err != nil {
 		return fmt.Errorf("encoding %s: %w", filepath.Base(path), err)
 	}
-	return writeFile(path, append(b, '\n'))
-}
-
-// prepareDir creates dir 0700, or accepts an existing empty one. A
-// directory that already holds something is refused without force.
-func prepareDir(dir string, force bool) error {
-	fi, err := os.Stat(dir)
-	switch {
-	case os.IsNotExist(err):
-		return os.MkdirAll(dir, 0o700)
-	case err != nil:
-		return err
-	case !fi.IsDir():
-		return fmt.Errorf("%s exists and is not a directory", dir)
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	if len(entries) > 0 && !force {
-		return fmt.Errorf("%s is not empty; pass --force to write the fixture into it anyway", dir)
-	}
-	return nil
-}
-
-// writeFile writes data to path through a temporary file in the same
-// directory and a rename, so the result is a fresh 0600 file whatever was
-// at path before, and a symlink at path is replaced rather than followed.
-func writeFile(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".whosent-*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	defer func() { _ = os.Remove(name) }() // a no-op once renamed
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(name, path)
+	return safewrite.File(path, append(b, '\n'))
 }

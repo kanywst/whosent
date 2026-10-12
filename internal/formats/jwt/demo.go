@@ -14,6 +14,7 @@ import (
 
 	jose "github.com/go-jose/go-jose/v4"
 
+	"github.com/kanywst/whosent/internal/safewrite"
 	"github.com/kanywst/whosent/pkg/chain"
 )
 
@@ -275,7 +276,7 @@ var FixedBase = time.Date(2026, 9, 12, 8, 0, 0, 0, time.UTC)
 // returns the command that checks them.
 func emitDemo(def scenarioDef, dir string, force bool) (string, error) {
 	d := def.mint(FixedBase)
-	if err := prepareDir(dir, force); err != nil {
+	if err := safewrite.Dir(dir, force); err != nil {
 		return "", err
 	}
 	jwksDir := filepath.Join(dir, "jwks")
@@ -295,7 +296,7 @@ func emitDemo(def scenarioDef, dir string, force bool) (string, error) {
 		}
 		data = append(b, '\n')
 	}
-	if err := writeFile(filepath.Join(dir, name), data); err != nil {
+	if err := safewrite.File(filepath.Join(dir, name), data); err != nil {
 		return "", err
 	}
 	cmd := []string{"whosent", "check", name, "--format", ID}
@@ -308,7 +309,7 @@ func emitDemo(def scenarioDef, dir string, force bool) (string, error) {
 				continue
 			}
 			seen[k.iss] = true
-			if err := writeFile(filepath.Join(jwksDir, file), k.jwks()); err != nil {
+			if err := safewrite.File(filepath.Join(jwksDir, file), k.jwks()); err != nil {
 				return "", err
 			}
 			issuers[k.iss] = map[string]string{"jwks_file": filepath.Join("jwks", file)}
@@ -317,7 +318,7 @@ func emitDemo(def scenarioDef, dir string, force bool) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if err := writeFile(filepath.Join(dir, "trust.json"), append(b, '\n')); err != nil {
+		if err := safewrite.File(filepath.Join(dir, "trust.json"), append(b, '\n')); err != nil {
 			return "", err
 		}
 		cmd = append(cmd, "--trust", "trust.json")
@@ -333,55 +334,10 @@ func emitDemo(def scenarioDef, dir string, force bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := writeFile(filepath.Join(dir, "manifest.json"), append(manifest, '\n')); err != nil {
+	if err := safewrite.File(filepath.Join(dir, "manifest.json"), append(manifest, '\n')); err != nil {
 		return "", err
 	}
 	return command, nil
-}
-
-// prepareDir and writeFile follow internal/demo's rules for fixtures: a
-// directory that holds something is refused without force, and every file
-// is written to a temporary name and renamed into place at 0600, so a
-// symlink planted at the name is replaced rather than written through.
-func prepareDir(dir string, force bool) error {
-	fi, err := os.Stat(dir)
-	switch {
-	case os.IsNotExist(err):
-		return os.MkdirAll(dir, 0o700)
-	case err != nil:
-		return err
-	case !fi.IsDir():
-		return fmt.Errorf("%s exists and is not a directory", dir)
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	if len(entries) > 0 && !force {
-		return fmt.Errorf("%s is not empty; pass --force to write the fixture into it anyway", dir)
-	}
-	return nil
-}
-
-func writeFile(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".whosent-*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	defer func() { _ = os.Remove(name) }()
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(name, path)
 }
 
 // scenarioNames lists the demos, for tests.
