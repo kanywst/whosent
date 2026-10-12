@@ -618,3 +618,16 @@ func TestANegatedMissingSelectorIsNotVouchedFor(t *testing.T) {
 	}
 }
 
+// Without an invocation no policy is applied, so the headline must not say
+// every rule was checked.
+func TestDelegationsWithoutAnInvocationSayNoPolicyWasApplied(t *testing.T) {
+	d := healthy(chaintest.Base, nil)
+	d.tokens = d.tokens[:len(d.tokens)-1]
+	c := demoChain(t, d)
+	if c.Verdict != chain.VerdictValid {
+		t.Fatalf("verdict %v: %s", c.Verdict, c.Headline)
+	}
+	if strings.Contains(c.Headline, "Every rule was checked") || !strings.Contains(c.Headline, "no policy was applied") {
+		t.Errorf("headline: %s", c.Headline)
+	}
+}

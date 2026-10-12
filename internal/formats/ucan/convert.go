@@ -134,7 +134,7 @@ func (a *analysis) verdict(c *chain.Chain) {
 				a.name(a.inv.tok.Iss), a.inv.tok.Cmd, a.name(a.subject), dlgs, plural(dlgs))
 			return
 		}
-		c.Headline = fmt.Sprintf("%s's authority reaches %s through %d delegation%s. Every rule was checked.",
+		c.Headline = fmt.Sprintf("%s's authority reaches %s through %d delegation%s. They verify, but no invocation was given, so no policy was applied.",
 			a.name(a.subject), c.Links[len(c.Links)-1].To, dlgs, plural(dlgs))
 	}
 }
