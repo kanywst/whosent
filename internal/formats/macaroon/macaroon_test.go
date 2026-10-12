@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -13,6 +14,8 @@ import (
 	"time"
 
 	fly "github.com/superfly/macaroon"
+	"github.com/superfly/macaroon/flyio"
+	"github.com/superfly/macaroon/resset"
 
 	"github.com/kanywst/whosent/pkg/chain"
 	"github.com/kanywst/whosent/pkg/chain/chaintest"
@@ -652,5 +655,25 @@ func TestTwoDisagreementsAreBothKept(t *testing.T) {
 	c := evaluate(t, s, time.Minute)
 	if c.Inconsistency == nil || !strings.Contains(c.Inconsistency.Detail, "injected signature refusal") || !strings.Contains(c.Inconsistency.Detail, "injected request refusal") {
 		t.Errorf("inconsistency %+v; want both disagreements", c.Inconsistency)
+	}
+}
+
+// A discharge that answers another permission token's caveat is never
+// walked, so its caveats cannot make the request guard cry inconsistency.
+func TestAnUnwalkedDischargeDoesNotTripTheRequestGuard(t *testing.T) {
+	other := mintFly(flySignKey, []byte("org-token-2"), "https://api.fly.example/v1", 0x12, false)
+	ticket, dk := other.third(flyAuthKey, "https://auth.fly.example", 0x32)
+	d := mintFly(dk, ticket, "https://auth.fly.example", 0x42, true)
+	d.add(&flyio.Organization{ID: 1, Mask: resset.ActionRead})
+	extra := strings.TrimPrefix(flyHeader(other.encode(), d.encode()), fly.AuthorizationSchemeFlyV1+" ")
+	data := flyDemo(chaintest.Base) + "," + extra
+	s, err := New().Open(context.Background(), chain.Inputs{Data: []byte(data), RootKeys: []string{hex.EncodeToString(flySignKey)},
+		Facts: []string{"org=4242", "app=123", "action=r"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := evaluate(t, s.(*session), time.Minute)
+	if c.Inconsistency != nil {
+		t.Errorf("an unwalked discharge tripped the guard: %+v", c.Inconsistency)
 	}
 }

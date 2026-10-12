@@ -373,16 +373,24 @@ func (e *evaluation) fly() {
 		e.guard(v.ok, func() error { return flyReference(b, e.s.key) }, "superfly/macaroon")
 	}
 	if e.s.flyReq != nil && e.flyRestrictions > 0 {
-		e.flyRequestGuard(b)
+		e.flyRequestGuard(b, walked)
 	}
 }
 
 // flyRequestGuard compares the caveat-by-caveat reading of the request with
 // superfly/macaroon's own Validate over the same caveats; a disagreement is
 // reported and the refusal stands.
-func (e *evaluation) flyRequestGuard(b *flyBundle) {
+func (e *evaluation) flyRequestGuard(b *flyBundle, walked []bool) {
+	// Only the tokens the walk judged: a discharge nothing asks for was
+	// never read as part of the chain.
+	toks := []*flyToken{b.root}
+	for j, d := range b.discharges {
+		if walked[j] {
+			toks = append(toks, d)
+		}
+	}
 	var cavs []fly.Caveat
-	for _, t := range append([]*flyToken{b.root}, b.discharges...) {
+	for _, t := range toks {
 		for _, c := range t.m.UnsafeCaveats.Caveats {
 			switch c.(type) {
 			case *fly.Caveat3P, *fly.BindToParentToken:
