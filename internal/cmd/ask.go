@@ -67,7 +67,8 @@ Which flags apply depends on the format: Mandatum asks about a resource
 scope (--scope, and --audience for where it is used); a Biscuit token runs
 its authorizer (--authorizer and --fact) for a request (--resource-id and
 --action become resource(...) and operation(...) facts) and decides with the
-authorizer's policies unless --policy gives others. --field KEY=VALUE sets
+authorizer's policies unless --policy gives others; a UCAN chain about a
+command (--action) and its arguments (--field args=JSON). --field KEY=VALUE sets
 any of the format's question fields directly. A flag the format does not
 use is refused, and nothing a question needs is filled in from a default.`,
 		Args: cobra.MaximumNArgs(1),
@@ -188,7 +189,10 @@ func (a *askFlags) values(cmd *cobra.Command, fields []chain.AskField, call *cha
 			}
 			values["policy"] = a.policy
 		}
-		if changed("resource-id") || changed("action") {
+		if has["command"] && changed("action") {
+			values["command"] = a.action
+		}
+		if changed("resource-id") || (changed("action") && !has["command"]) {
 			if !has["facts"] {
 				if changed("resource-id") {
 					return nil, nil, refuse("resource-id")
@@ -240,6 +244,8 @@ func flagFor(key string) string {
 		return "--resource-id"
 	case "policy":
 		return "--policy"
+	case "command":
+		return "--action"
 	}
 	return "--field " + key + "=..."
 }

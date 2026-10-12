@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Built with Bubble Tea](https://img.shields.io/badge/Built%20with-Bubble%20Tea-B7A0E8.svg)](https://github.com/charmbracelet/bubbletea)
 
-Who sent this agent? A terminal viewer for delegation chains: OAuth token exchange (RFC 8693 `act`, ID-JAG, Txn-Token, Entra agent tokens), [Biscuit](https://www.biscuitsec.org), and Mandatum. It shows the human at the root, how authority narrows hop by hop, and exactly where trust breaks.
+Who sent this agent? A terminal viewer for delegation chains: OAuth token exchange (RFC 8693 `act`, ID-JAG, Txn-Token, Entra agent tokens), [Biscuit](https://www.biscuitsec.org), [UCAN](https://github.com/ucan-wg/spec), and Mandatum. It shows the human at the root, how authority narrows hop by hop, and exactly where trust breaks.
 
 ![whosent demo](demo.gif)
 
@@ -46,7 +46,7 @@ Without keys the chain still opens. The rules that need them are shown as not ch
 
 ## Formats
 
-The format is recognised from the input. `--format jwt|biscuit|mandatum` says it when the input could be more than one.
+The format is recognised from the input. `--format jwt|biscuit|ucan|mandatum` says it when the input could be more than one.
 
 ### JWT token exchange
 
@@ -95,6 +95,24 @@ echo 'right("orders", "read");' | biscuit generate --private-key-file root.key -
 biscuit attenuate token.b64 --block 'check if operation("read");' > attenuated.b64
 whosent attenuated.b64 --root-key root.pub
 ```
+
+### UCAN
+
+A UCAN 1.0 chain is a series of delegations, each signed by its issuer's `did:key` and addressed to the next, ending in an invocation whose `prf` lists them from the subject's own. whosent draws the subject as the root, one link per delegation and the invocation last, and shows authority narrowing as the command gets longer and the policies pile up. Input is a container, a JSON array of base64 tokens, or the tokens one per line.
+
+Everything is checked by whosent's own code. go-ucan v1.2.0 reads only the release-candidate tags and departs from the specification's policy semantics, so agreement rests on the specification's own 1.0.0 fixtures: all 20 invocation cases give the expected outcome, as do the delegation and policy fixtures.
+
+| Rule | Checks |
+| :--: | :--- |
+| U1 | the envelope is canonical DAG-CBOR with a varsig header and a `ucan/dlg@1.0.0` or `ucan/inv@1.0.0` payload whose fields are well formed |
+| U2 | the signature verifies against the issuer's `did:key` (Ed25519, P-256, secp256k1); other DID methods are not checked |
+| U3 | `nbf` and `exp` hold at the evaluation time, within the skew |
+| U4 | the first delegation is issued by its subject, and each token by the audience of the delegation above it |
+| U5 | every token is about the same subject; a powerline (`sub: null`) may not be the root |
+| U6 | each command is the one above it or nested under it |
+| U7 | the invocation's arguments satisfy every delegation's policy |
+| U8 | the invocation names its proofs and every one is supplied, or the invoker is the subject |
+| U9 | no delegation's CID is on the `--revoked-jtis` list |
 
 ### Mandatum
 
@@ -214,6 +232,7 @@ From a script, `whosent ask` asks the same question and exits 0 only when a VALI
 | --- | --- |
 | JWT | `--scope files:read`, used at `--audience` |
 | Biscuit | the authorizer (`--authorizer`, `--fact`) runs over the token for a request: `--resource-id` and `--action` become `resource(...)` and `operation(...)` facts; it decides with the authorizer's own policies unless `--policy` gives others, which makes the answer at most `CONDITIONAL` |
+| UCAN | `--action /msg/send` as the command, with `--field 'args={...}'` for its arguments |
 | Mandatum | `--resource-id`, `--action`, `--resource-type`, `--tag`, `--attr`, or a `tools/call` request with `--attr-from-args` |
 
 `--field KEY=VALUE` sets any of a format's question fields by name.
@@ -228,12 +247,12 @@ From a script, `whosent ask` asks the same question and exits 0 only when a VALI
 | `--audience AUD` | JWT, Mandatum | the party the chain is presented to |
 | `--fact FACT`, `--authorizer FILE` | Biscuit | the authorizer's facts and policies the token's checks run against |
 | `--revocations FILE` | Mandatum | a published revocation set |
-| `--revoked-jtis FILE` | Biscuit, Mandatum | for Biscuit, revoked block revocation ids, one per line; for Mandatum, the exact jti list that resolves a hit in the revocation set's filter |
+| `--revoked-jtis FILE` | Biscuit, UCAN, Mandatum | for Biscuit, revoked block revocation ids, one per line; for UCAN, revoked delegation CIDs; for Mandatum, the exact jti list that resolves a hit in the revocation set's filter |
 | `--at TIME` | all | evaluate at another time: RFC 3339, unix seconds, or `+25m` / `-1h` |
 | `--skew DURATION` | all | clock skew tolerance, at most 5m (default 30s) |
 | `--reverse` | Mandatum | the chain was handed over leaf first |
 
-Flags a format does not use have no effect. The Biscuit format lists them under "checked against" in the view and in `--json`.
+Flags a format does not use have no effect, and every format says which ones it ignored: in `check` output, in the view and in `--json`.
 
 ```json
 {"issuers": {
@@ -255,7 +274,7 @@ Flags a format does not use have no effect. The Biscuit format lists them under 
 | `t` | time mode: a timeline of every link, and `←` `→` move the clock |
 | `[` `]` `shift+←` `shift+→` | move the clock in big steps |
 | `0` | back to the time the chain was opened at |
-| `x` | simulate revoking the selected link; again to undo (Biscuit and Mandatum) |
+| `x` | simulate revoking the selected link; again to undo (Biscuit, UCAN and Mandatum) |
 | `X` | clear every simulated revocation |
 | `a` | ask whether the chain would permit a request |
 | `n` `p` | next or previous scenario, in the demo tour |
@@ -275,7 +294,7 @@ Time mode and the revocation simulation re-run the whole diagnosis, so what you 
 
 - Every string that comes from a chain, a key document or a library error is escaped before it reaches the terminal. Control characters, escape sequences and bidi overrides are shown as visible escapes, so a chain cannot clear the screen, print a fake verdict, write your clipboard over OSC 52, or disguise a name. `--json` output is escaped the same way.
 - whosent touches the network only to fetch key documents from the https URLs you configure. Which keys belong to which issuer comes from your flags or trust file, never from the chain: a JWT's `jku`, `x5u`, `x5c` and `jwk` headers are not used. Fetches must stay on https through any redirect, and are capped at 1 MiB and 5 seconds.
-- Input is capped at 1 MiB. A Mandatum chain is read to at most 64 links, a JWT bundle to 64 tokens and 64 nested actors, a Biscuit token to 32 blocks of 256 KiB.
+- Input is capped at 1 MiB. A Mandatum chain is read to at most 64 links, a JWT bundle to 64 tokens and 64 nested actors, a Biscuit token to 32 blocks of 256 KiB, a UCAN chain to 64 tokens.
 
 Report a vulnerability through a [private advisory](https://github.com/kanywst/whosent/security/advisories/new). See [SECURITY.md](SECURITY.md).
 
