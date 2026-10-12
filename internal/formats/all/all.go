@@ -6,7 +6,9 @@ package all
 import (
 	"github.com/kanywst/whosent/internal/formats/biscuit"
 	"github.com/kanywst/whosent/internal/formats/jwt"
+	"github.com/kanywst/whosent/internal/formats/macaroon"
 	"github.com/kanywst/whosent/internal/formats/mandatum"
+	"github.com/kanywst/whosent/internal/formats/ucan"
 	"github.com/kanywst/whosent/pkg/chain"
 )
 
@@ -16,7 +18,9 @@ func Adapters() []chain.Adapter {
 	return []chain.Adapter{
 		jwt.New(),
 		biscuit.New(),
+		ucan.New(),
 		mandatum.New(),
+		macaroon.New(),
 	}
 }
 
