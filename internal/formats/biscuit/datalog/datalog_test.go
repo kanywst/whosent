@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -271,7 +272,9 @@ func TestRunLimitsStopRunawayRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res := Authorize(nil, pairs, Limits{MaxFacts: 50, MaxIterations: 1000, MaxTime: DefaultLimits.MaxTime})
+	// The time limit is generous here: these cases are about the fact and
+	// iteration limits, and a busy machine must not reach the clock first.
+	res := Authorize(nil, pairs, Limits{MaxFacts: 50, MaxIterations: 1000, MaxTime: time.Minute})
 	var le *LimitError
 	if res.Err == nil || !asLimit(res.Err, &le) || le.Kind != "TooManyFacts" {
 		t.Errorf("err %v, want TooManyFacts", res.Err)
@@ -280,7 +283,7 @@ func TestRunLimitsStopRunawayRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res = Authorize(nil, closure, Limits{MaxFacts: 1 << 20, MaxIterations: 10, MaxTime: DefaultLimits.MaxTime})
+	res = Authorize(nil, closure, Limits{MaxFacts: 1 << 20, MaxIterations: 10, MaxTime: time.Minute})
 	if res.Err == nil || !asLimit(res.Err, &le) || le.Kind != "TooManyIterations" {
 		t.Errorf("err %v, want TooManyIterations", res.Err)
 	}

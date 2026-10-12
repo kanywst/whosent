@@ -131,7 +131,10 @@ authorizer's policies (which makes the answer at most CONDITIONAL); a UCAN chain
 a command (\fB\-\-action\fR) and its arguments (\fB\-\-field\fR
 args=\fIJSON\fR); Mandatum a
 resource request (\fB\-\-resource\-id\fR, \fB\-\-action\fR,
-\fB\-\-resource\-type\fR, \fB\-\-tag\fR, \fB\-\-attr\fR).
+\fB\-\-resource\-type\fR, \fB\-\-tag\fR, \fB\-\-attr\fR); a Fly.io token a
+request (\fB\-\-action\fR, \fB\-\-field\fR org=\fIID\fR, \fB\-\-field\fR
+app=\fIID\fR) checked with Fly.io's own access check; a libmacaroons macaroon
+the predicates a verifier holds (\fB\-\-field\fR predicates=\fIA;B\fR).
 \fB\-\-field\fR \fIKEY\fR=\fIVALUE\fR sets any question field by name. A flag
 the format has no use for is refused, and nothing a question needs is filled in
 from a default.
@@ -452,6 +455,8 @@ Time: time caveats hold at the evaluation time.
 .TP
 .B M6
 Caveat: first-party predicates are among the \fB\-\-fact\fR predicates.
+A Fly.io caveat restricts the request, not the token: it is shown as the
+token's authority, and \fBask\fR tests a request against it.
 .SH EXIT STATUS
 .B check
 exits:

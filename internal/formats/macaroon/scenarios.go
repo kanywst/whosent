@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -16,6 +15,7 @@ import (
 	"github.com/superfly/macaroon/flyio"
 	"github.com/superfly/macaroon/resset"
 
+	"github.com/kanywst/whosent/internal/safewrite"
 	"github.com/kanywst/whosent/pkg/chain"
 )
 
@@ -109,7 +109,7 @@ var specs = []spec{
 			return libDemo(bank(base, true, base.Add(time.Hour)), nil, nil)
 		}},
 	{"macaroon-fly", "A Fly.io token",
-		"a Fly.io-style token: an organization, a validity window and an auth caveat, discharged by the auth service with a proof bound to the token. The signature checks; the organization restricts a request whosent cannot see.",
+		"a Fly.io-style token for one organization and one app, read-write, discharged by the auth service with a proof bound to the token. The token holds; ask tests a request against its caveats.",
 		func(base time.Time) demo {
 			return demo{data: []byte(flyDemo(base) + "\n"), key: flySignKey}
 		}},
@@ -118,6 +118,7 @@ var specs = []spec{
 func flyDemo(base time.Time) string {
 	root := mintFly(flySignKey, []byte("org-token-1"), "https://api.fly.example/v1", 0x11, false)
 	root.add(&flyio.Organization{ID: 4242, Mask: resset.ActionRead | resset.ActionWrite})
+	root.add(&flyio.Apps{Apps: resset.ResourceSet[uint64, resset.Action]{123: resset.ActionRead | resset.ActionWrite}})
 	root.add(&fly.ValidityWindow{NotBefore: base.Add(-time.Hour).Unix(), NotAfter: base.Add(24 * time.Hour).Unix()})
 	ticket, dk := root.third(flyAuthKey, "https://auth.fly.example", 0x31)
 	d := mintFly(dk, ticket, "https://auth.fly.example", 0x41, true)
@@ -168,7 +169,7 @@ var emitBase = time.Date(2026, 9, 12, 8, 0, 0, 0, time.UTC)
 
 func emit(sp spec, dir string, force bool) (string, error) {
 	d := sp.build(emitBase)
-	if err := prepareDir(dir, force); err != nil {
+	if err := safewrite.Dir(dir, force); err != nil {
 		return "", err
 	}
 	files := map[string][]byte{"token.txt": d.data}
@@ -190,54 +191,9 @@ func emit(sp spec, dir string, force bool) (string, error) {
 	}
 	files["manifest.json"] = append(manifest, '\n')
 	for name, data := range files {
-		if err := writeFile(filepath.Join(dir, name), data); err != nil {
+		if err := safewrite.File(filepath.Join(dir, name), data); err != nil {
 			return "", err
 		}
 	}
 	return command, nil
-}
-
-// prepareDir creates dir 0700, or accepts an existing empty one. A
-// directory that already holds something is refused without force.
-func prepareDir(dir string, force bool) error {
-	fi, err := os.Stat(dir)
-	switch {
-	case os.IsNotExist(err):
-		return os.MkdirAll(dir, 0o700)
-	case err != nil:
-		return err
-	case !fi.IsDir():
-		return fmt.Errorf("%s exists and is not a directory", dir)
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return err
-	}
-	if len(entries) > 0 && !force {
-		return fmt.Errorf("%s is not empty; pass --force to write the fixture into it anyway", dir)
-	}
-	return nil
-}
-
-// writeFile writes through a temporary file and a rename, so a symlink
-// planted at the name is replaced rather than written through.
-func writeFile(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".whosent-*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	defer func() { _ = os.Remove(name) }()
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(name, path)
 }

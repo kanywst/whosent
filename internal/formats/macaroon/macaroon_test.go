@@ -73,7 +73,7 @@ func TestEachScenarioBreaksWhereItShould(t *testing.T) {
 		{"macaroon-tampered", chain.VerdictInvalid, 0, map[string][]int{RuleSignature: {0, 1, 2, 3, 4}, RuleBinding: {4}}},
 		{"macaroon-expired", chain.VerdictInvalid, 3, map[string][]int{RuleTime: {3}}},
 		{"macaroon-unchecked", chain.VerdictIncomplete, -1, map[string][]int{}},
-		{"macaroon-fly", chain.VerdictIncomplete, -1, map[string][]int{}},
+		{"macaroon-fly", chain.VerdictValid, -1, map[string][]int{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -449,4 +449,134 @@ func FuzzDecode(f *testing.F) {
 			t.Errorf("the chain breaks the contract: %v", p)
 		}
 	})
+}
+
+// A Fly.io token's caveats are its authority: the token is VALID, and a
+// request is judged against them by Fly.io's own access check.
+func TestAskJudgesAFlyRequestWithFlyiosAccessCheck(t *testing.T) {
+	s := open(t, "macaroon-fly")
+	c := evaluate(t, s, time.Minute)
+	if c.Verdict != chain.VerdictValid {
+		t.Fatalf("the Fly.io demo is %s: %v", c.Verdict, c.Findings())
+	}
+	tests := []struct {
+		name    string
+		values  map[string]string
+		verdict string
+	}{
+		{"a read on the token's app is allowed", map[string]string{askOrg: "4242", askAction: "r", askApp: "123"}, "PERMITTED"},
+		{"a write on the token's app is allowed", map[string]string{askOrg: "4242", askAction: "w", askApp: "123"}, "PERMITTED"},
+		{"an org-level request is refused once the token names an app", map[string]string{askOrg: "4242", askAction: "r"}, "DENIED"},
+		{"a delete is outside the mask", map[string]string{askOrg: "4242", askAction: "d", askApp: "123"}, "DENIED"},
+		{"another org is refused", map[string]string{askOrg: "1", askAction: "r"}, "DENIED"},
+		{"another app is refused", map[string]string{askOrg: "4242", askAction: "r", askApp: "999"}, "DENIED"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res, err := s.Ask(context.Background(), c, tt.values)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Verdict != tt.verdict || res.Authority != "AUTHORITATIVE" {
+				t.Errorf("%s (%s): %s", res.Verdict, res.Authority, res.Reason)
+			}
+		})
+	}
+	if _, err := s.Ask(context.Background(), c, map[string]string{askAction: "r"}); err == nil {
+		t.Error("a request with no organization is answered")
+	}
+}
+
+// Without the signing key nothing vouches for the caveats, so the answer is
+// conditional at best.
+func TestAskWithoutTheKeyIsConditional(t *testing.T) {
+	s := open(t, "macaroon-fly")
+	s.key = nil
+	c := evaluate(t, s, time.Minute)
+	res, err := s.Ask(context.Background(), c, map[string]string{askOrg: "4242", askAction: "r", askApp: "123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Authority == "AUTHORITATIVE" {
+		t.Errorf("answered %s without the key", res.Authority)
+	}
+}
+
+// A libmacaroons macaroon is asked about predicates: a verifier holding
+// all of them accepts it, one missing a predicate refuses it.
+func TestAskJudgesPredicatesAsAVerifierWould(t *testing.T) {
+	s := open(t, "macaroon-unchecked")
+	s.key = open(t, "macaroon-healthy").key
+	c := evaluate(t, s, time.Minute)
+	e := &evaluation{s: s, at: c.At}
+	e.lib()
+	var preds []string
+	for _, n := range e.nodes {
+		if n.kind == "first" && n.checks[5].Status == chain.StatusUnchecked {
+			preds = append(preds, n.cond)
+		}
+	}
+	if len(preds) == 0 {
+		t.Skip("the demo has no application predicates")
+	}
+	all := strings.Join(preds, "; ")
+	res, err := s.Ask(context.Background(), c, map[string]string{askPredicates: all})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Verdict != "PERMITTED" {
+		t.Errorf("with every predicate: %s (%s) %s", res.Verdict, res.Authority, res.Reason)
+	}
+	res, err = s.Ask(context.Background(), c, map[string]string{askPredicates: ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Verdict != "DENIED" {
+		t.Errorf("with no predicates: %s", res.Verdict)
+	}
+}
+
+// A token that does not verify under the given key permits nothing, even a
+// request its caveats would allow.
+func TestAskWithAWrongKeyIsHypothetical(t *testing.T) {
+	s := open(t, "macaroon-fly")
+	s.key = []byte("not the signing key")
+	c := evaluate(t, s, time.Minute)
+	if c.Verdict != chain.VerdictInvalid {
+		t.Fatalf("a wrong key gives %s", c.Verdict)
+	}
+	res, err := s.Ask(context.Background(), c, map[string]string{askOrg: "4242", askAction: "r", askApp: "123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Verdict != "DENIED" || res.Authority != "HYPOTHETICAL" {
+		t.Errorf("%s (%s)", res.Verdict, res.Authority)
+	}
+}
+
+func TestAgree(t *testing.T) {
+	refuse := []chain.AskStep{{Outcome: chain.OutcomeCovers}, {Outcome: chain.OutcomeRefuses}}
+	cover := []chain.AskStep{{Outcome: chain.OutcomeCovers}}
+	switch {
+	case !agree(nil, cover), !agree(errors.New("no"), refuse):
+		t.Error("matching answers reported as a disagreement")
+	case agree(nil, refuse), agree(errors.New("no"), cover):
+		t.Error("a disagreement went unnoticed")
+	}
+}
+
+// When the library and the caveat-by-caveat reading answer differently,
+// the request is refused and the answer carries an inconsistency, which
+// makes ask exit 70.
+func TestAskReportsADisagreementWithTheLibrary(t *testing.T) {
+	s := open(t, "macaroon-fly")
+	s.askRefuse = func() error { return errors.New("refused by the stand-in") }
+	c := evaluate(t, s, time.Minute)
+	res, err := s.Ask(context.Background(), c, map[string]string{askOrg: "4242", askAction: "r", askApp: "123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Inconsistency == nil || res.Permitted {
+		t.Errorf("a disagreement went unreported: %s, %+v", res.Verdict, res.Inconsistency)
+	}
 }

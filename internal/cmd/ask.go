@@ -114,6 +114,10 @@ use is refused, and nothing a question needs is filled in from a default.`,
 				printer(stderr)("whosent: internal inconsistency: %s\n", c.Inconsistency.Detail)
 				return exitError{ExitInconsistent}
 			}
+			if res.Inconsistency != nil {
+				printer(stderr)("whosent: internal inconsistency: %s\n", res.Inconsistency.Detail)
+				return exitError{ExitInconsistent}
+			}
 			switch {
 			case res.Permitted && !res.Conditional:
 				return exitError{ExitValid}
@@ -192,7 +196,10 @@ func (a *askFlags) values(cmd *cobra.Command, fields []chain.AskField, call *cha
 		if has["command"] && changed("action") {
 			values["command"] = a.action
 		}
-		if changed("resource-id") || (changed("action") && !has["command"]) {
+		if has["action"] && changed("action") {
+			values["action"] = a.action
+		}
+		if changed("resource-id") || (changed("action") && !has["command"] && !has["action"]) {
 			if !has["facts"] {
 				if changed("resource-id") {
 					return nil, nil, refuse("resource-id")
@@ -244,7 +251,7 @@ func flagFor(key string) string {
 		return "--resource-id"
 	case "policy":
 		return "--policy"
-	case "command":
+	case "command", "action":
 		return "--action"
 	}
 	return "--field " + key + "=..."
