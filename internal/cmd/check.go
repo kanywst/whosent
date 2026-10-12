@@ -59,7 +59,7 @@ Exit status:
 		},
 	}
 	c.Flags().BoolVar(&asJSON, "json", false, "print the report as JSON (schema "+chain.SchemaVersion+")")
-	c.Flags().BoolVar(&native, "native", false, "with --json, print the format's own report instead, such as Mandatum's whosent.report/v1")
+	c.Flags().BoolVar(&native, "native", false, "with --json, print the format's own report instead")
 	c.Flags().BoolVar(&strict, "strict", false, "treat INCOMPLETE as a failure (exit 1)")
 	return c
 }

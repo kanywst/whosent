@@ -2,7 +2,6 @@
 package version
 
 import (
-	"fmt"
 	"runtime/debug"
 )
 
@@ -13,24 +12,17 @@ var (
 	BuildDate = ""
 )
 
-// Mandatum is the release of the Mandatum reference verifier embedded in
-// internal/mandatum. It is a constant rather than read from the build info
-// because the code is copied in, not required as a module: kanywst/mandatum
-// is archived, and v0.2.0 is its last release.
-const Mandatum = "v0.2.0"
-
 // Info is the build's identity.
 type Info struct {
 	Version   string `json:"version"`
 	GitCommit string `json:"commit"`
 	BuildDate string `json:"date"`
-	Mandatum  string `json:"mandatum"`
 }
 
 // Get returns the build's identity. A `go install` build carries no ldflags,
 // so the module version and VCS stamp from the build info stand in for them.
 func Get() Info {
-	i := Info{Version: Version, GitCommit: GitCommit, BuildDate: BuildDate, Mandatum: Mandatum + " (embedded)"}
+	i := Info{Version: Version, GitCommit: GitCommit, BuildDate: BuildDate}
 	bi, ok := debug.ReadBuildInfo()
 	if !ok {
 		return i
@@ -66,5 +58,5 @@ func (i Info) String() string {
 	if i.BuildDate != "" {
 		s += " built " + i.BuildDate
 	}
-	return s + fmt.Sprintf(", mandatum %s", i.Mandatum)
+	return s
 }

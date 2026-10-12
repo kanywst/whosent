@@ -28,7 +28,6 @@ const (
 	typTxnToken = "txntoken+jwt"
 	typAccess   = "at+jwt"
 	typWIT      = "wit+jwt"
-	typMandatum = "mdt+jwt"
 )
 
 // actor is one party named in a token's `act` chain (RFC 8693 section 4.1),

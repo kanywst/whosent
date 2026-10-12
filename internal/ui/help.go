@@ -52,8 +52,8 @@ func (m Model) renderHelp(w int) []string {
 		st := map[string]lipgloss.Style{"teal": t.teal, "amber": t.amber, "coral": t.coral, "slate": t.slate}[l.style]
 		body = append(body, "  "+st.Render(l.glyph)+"  "+t.text.Render(m.clip(m.clean(l.what), inner-5)))
 	}
-	body = append(body, "  "+t.gold.UnsetBold().Render(g.pipOn+g.pipOn)+t.slate.Render(g.pipOff)+"  "+
-		t.text.Render(m.clip("delegations it may still make, then time left and a life bar", inner-7)))
+	body = append(body, "  "+t.muted.Render("59m")+"  "+
+		t.text.Render(m.clip("under a link: time left, then a life bar", inner-7)))
 	body = append(body, "", "  "+t.mint.Render(g.pass)+" pass  "+t.coral.Render(g.fail)+" fail  "+
 		t.coral.Render(g.err)+" could not run  "+t.amber.Render(g.unchecked)+" not checked  "+
 		t.slate.Render(g.skipped)+" skipped  "+t.slate.Render(g.na)+" n/a")

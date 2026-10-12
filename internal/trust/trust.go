@@ -1,18 +1,10 @@
-// Package trust loads verification keys for the issuers a chain is checked
+// Package trust loads the key documents for the issuers a chain is checked
 // against: from a trust file, from --jwks flags, from local JWKS documents or
-// from https URLs.
-//
-// Keys are read the way mandatum's own JWKS resolver reads them (which keys
-// are usable, what makes a document unusable), so that a chain this tool
-// shows as signed is a chain an enforcement point using that resolver
-// accepts. A test serves the same documents to the library's resolver and
-// compares.
+// from https URLs. Each format parses the documents itself.
 package trust
 
 import (
 	"context"
-	"crypto/ed25519"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,11 +16,9 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/kanywst/whosent/pkg/diagnose"
 )
 
-// The same bounds the library's resolver applies to a key document.
+// Bounds on fetching a key document.
 const (
 	fetchTimeout = 5 * time.Second
 	maxBytes     = 1 << 20
@@ -121,34 +111,6 @@ type Loader struct {
 	Client *http.Client
 }
 
-// Load reads every source into a diagnose.Trust.
-//
-// A local file that cannot be read is an error: it is almost always a typo,
-// and answering it with "no key" would send someone chasing the wrong
-// problem. A document that is read but cannot be used, or a URL that cannot
-// be fetched, is recorded against the issuer instead, so every link that
-// issuer signed shows as an Error: an enforcement point configured the same
-// way would deny those links, and that is what the report has to say.
-func (l Loader) Load(ctx context.Context, sources []Source) (*diagnose.Trust, error) {
-	docs, err := l.LoadDocuments(ctx, sources)
-	if err != nil {
-		return nil, err
-	}
-	t := &diagnose.Trust{Issuers: map[string]*diagnose.IssuerKeys{}}
-	for _, d := range docs {
-		ik := &diagnose.IssuerKeys{Source: d.Source, Err: d.Err}
-		if d.Err == "" {
-			var perr error
-			ik.Keys, ik.Skipped, perr = ParseDocument(d.Data)
-			if perr != nil {
-				ik.Err = perr.Error()
-			}
-		}
-		t.Issuers[d.Issuer] = ik
-	}
-	return t, nil
-}
-
 // Document is one issuer's key document as read, before any format decides
 // which keys in it it can use. Err is set, and Data empty, when a URL could
 // not be fetched: an enforcement point configured the same way would deny,
@@ -162,10 +124,10 @@ type Document struct {
 	Err    string
 }
 
-// LoadDocuments reads every source, in order, under the same rules as Load:
-// one source per issuer, https only (at every redirect), at most a megabyte,
-// and a local file that cannot be read is an error. Formats whose keys are
-// not Mandatum's Ed25519 keys parse the documents themselves.
+// LoadDocuments reads every source, in order: one source per issuer, https
+// only (at every redirect), at most a megabyte. A local file that cannot be
+// read is an error, since it is almost always a typo; a URL that cannot be
+// fetched is recorded against the issuer.
 func (l Loader) LoadDocuments(ctx context.Context, sources []Source) ([]Document, error) {
 	seen := map[string]bool{}
 	out := make([]Document, 0, len(sources))
@@ -205,9 +167,8 @@ func (l Loader) fetch(ctx context.Context, src string) ([]byte, error) {
 		return nil, err
 	}
 	if u.Scheme != "https" {
-		// The library refuses plaintext key sources outright. A key document
-		// fetched over plaintext is a forged chain waiting for a network
-		// position.
+		// A key document fetched over plaintext is a forged chain waiting
+		// for a network position.
 		return nil, fmt.Errorf("key source must be https, got %q", u.Scheme)
 	}
 	if u.Host == "" {
@@ -221,8 +182,6 @@ func (l Loader) fetch(ctx context.Context, src string) ([]byte, error) {
 	// The https rule has to hold for every hop, not only the first. The
 	// default client follows a redirect from https to plaintext, which would
 	// make "key sources must be https" true only of the URL someone typed.
-	// mandatum's own resolver follows such a redirect; refusing it here can
-	// only turn a pass into an Error, never the other way round.
 	client.CheckRedirect = checkRedirect
 	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
@@ -260,107 +219,4 @@ func checkRedirect(req *http.Request, via []*http.Request) error {
 		return fmt.Errorf("redirected to %s, which is not https; key sources must be https at every hop", req.URL.Redacted())
 	}
 	return nil
-}
-
-type jwk struct {
-	KeyType   string   `json:"kty"`
-	Curve     string   `json:"crv"`
-	X         string   `json:"x"`
-	KeyID     string   `json:"kid"`
-	Use       string   `json:"use"`
-	Algorithm string   `json:"alg"`
-	KeyOps    []string `json:"key_ops"`
-}
-
-// document mirrors the library's jwksDocument field for field. The
-// spiffe_sequence member matters even though nothing here reads it: the
-// library decodes it as a uint64, so a document where it is negative, a
-// string or a fraction fails to decode and the library denies every link
-// that issuer signed. Leaving it out would accept that document and show
-// those signatures as passing.
-type document struct {
-	Keys           []jwk  `json:"keys"`
-	SPIFFESequence uint64 `json:"spiffe_sequence"`
-}
-
-// ParseDocument reads a JWKS (or a SPIFFE bundle, which is a JWKS with extra
-// members) the way mandatum's resolver does: unusable keys are skipped, a
-// document with no usable key is refused, a key without a kid among several
-// is refused, two different keys under one kid are refused, and a document
-// with exactly one usable key also serves it as the issuer's default.
-//
-// Unlike the library, it says which keys it skipped and why. The library is
-// silent about them, which is right for an enforcement point and unhelpful
-// to someone working out why a rotation did not take.
-func ParseDocument(data []byte) (map[string]ed25519.PublicKey, []string, error) {
-	var doc document
-	if err := json.Unmarshal(data, &doc); err != nil {
-		return nil, nil, fmt.Errorf("parsing keys: %w", err)
-	}
-	type identified struct {
-		kid string
-		key ed25519.PublicKey
-	}
-	var usable []identified
-	var skipped []string
-	for i, k := range doc.Keys {
-		key, why := k.ed25519Key()
-		if why != "" {
-			name := k.KeyID
-			if name == "" {
-				name = fmt.Sprintf("keys[%d]", i)
-			}
-			skipped = append(skipped, name+": "+why)
-			continue
-		}
-		usable = append(usable, identified{kid: k.KeyID, key: key})
-	}
-	if len(usable) == 0 {
-		return nil, skipped, errors.New("the key document has no Ed25519 keys this verifier can use")
-	}
-	keys := map[string]ed25519.PublicKey{}
-	for _, u := range usable {
-		if u.kid == "" && len(usable) > 1 {
-			return nil, skipped, fmt.Errorf("the key document has an unidentified key among %d", len(usable))
-		}
-		if existing, clash := keys[u.kid]; clash && !existing.Equal(u.key) {
-			return nil, skipped, fmt.Errorf("the key document has two different keys with kid %q", u.kid)
-		}
-		keys[u.kid] = u.key
-	}
-	if len(usable) == 1 {
-		keys[""] = usable[0].key
-	}
-	return keys, skipped, nil
-}
-
-// ed25519Key mirrors the library's rules for a usable key, returning why a
-// key is not usable rather than only that it is not.
-func (k jwk) ed25519Key() (ed25519.PublicKey, string) {
-	if k.KeyType != "OKP" || k.Curve != "Ed25519" {
-		return nil, fmt.Sprintf("kty %q crv %q is not an Ed25519 key", k.KeyType, k.Curve)
-	}
-	if k.Algorithm != "" && k.Algorithm != "EdDSA" {
-		return nil, fmt.Sprintf("alg %q is not EdDSA", k.Algorithm)
-	}
-	if k.Use != "" && k.Use != "sig" {
-		return nil, fmt.Sprintf("use %q is not sig", k.Use)
-	}
-	if len(k.KeyOps) > 0 {
-		permitted := false
-		for _, op := range k.KeyOps {
-			if op == "verify" {
-				permitted = true
-				break
-			}
-		}
-		if !permitted {
-			return nil, "key_ops does not include verify"
-		}
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(k.X)
-	if err != nil || len(raw) != ed25519.PublicKeySize {
-		return nil, "x is not a 32-byte base64url key"
-	}
-	return ed25519.PublicKey(raw), ""
 }

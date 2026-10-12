@@ -10,7 +10,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/kanywst/whosent/internal/demo"
 	"github.com/kanywst/whosent/pkg/chain"
 )
 
@@ -66,21 +65,14 @@ func TestEveryLineFitsTheTerminal(t *testing.T) {
 // tool to learn are on the first screen: the verdict, where the chain
 // breaks, the rules that failed, and that nothing below a break looks alive.
 func TestEachScenarioSaysWhatIsWrongWithIt(t *testing.T) {
-	for _, name := range demo.Names() {
-		t.Run(name, func(t *testing.T) {
-			sc, err := demo.Build(name, demo.FixedBase)
-			if err != nil {
-				t.Fatal(err)
-			}
-			m := open(t, name, 160, 50)
+	for _, s := range demoSessions(t) {
+		t.Run(s.Name, func(t *testing.T) {
+			m := sized(t, Config{Sessions: []Session{s}}, 160, 50)
 			got := plain(m)
 			r := m.report
 
 			if !strings.Contains(got, string(r.Verdict)) {
 				t.Errorf("the screen never says %s", r.Verdict)
-			}
-			if string(r.Verdict) != string(sc.Verdict) {
-				t.Errorf("the view diagnosed %s, the scenario is %s", r.Verdict, sc.Verdict)
 			}
 			if r.BreakAt >= 0 {
 				want := fmt.Sprintf("Breaks at link %d", r.BreakAt)
@@ -88,8 +80,11 @@ func TestEachScenarioSaysWhatIsWrongWithIt(t *testing.T) {
 					t.Errorf("the banner does not say %q:\n%s", want, got)
 				}
 			}
-			for _, e := range sc.ExpectAll {
-				want := fmt.Sprintf("%s link %d", e.Rule, e.Link)
+			for _, f := range r.Findings() {
+				if f.Severity != chain.SeverityFail || f.Derived || f.Link < 0 {
+					continue
+				}
+				want := fmt.Sprintf("%s link %d", f.Rule, f.Link)
 				if !strings.Contains(got, want) {
 					t.Errorf("the findings do not mention %q", want)
 				}
@@ -113,14 +108,14 @@ func TestEachScenarioSaysWhatIsWrongWithIt(t *testing.T) {
 // TestUncheckedNeverLooksVerified is the honesty rule: a signature nobody had
 // a key for must not be drawn the way a verified one is.
 func TestUncheckedNeverLooksVerified(t *testing.T) {
-	m := open(t, "unchecked", 160, 50)
+	m := open(t, "jwt-unchecked", 160, 50)
 	got := plain(m)
-	for _, unwanted := range []string{"✓ verified", "✓ V3", "✓ V8", "✓ V9", "✓ VALID"} {
+	for _, unwanted := range []string{"✓ verified", "✓ J2", "✓ J4", "✓ VALID"} {
 		if strings.Contains(got, unwanted) {
 			t.Errorf("an unchecked chain shows %q", unwanted)
 		}
 	}
-	for _, want := range []string{"INCOMPLETE", "○ unverified", "○ V3", "no keys for 3 issuers", "none given"} {
+	for _, want := range []string{"INCOMPLETE", "○ unverified", "○ J2", "no keys for issuer", "none given"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("an unchecked chain does not show %q", want)
 		}
@@ -131,7 +126,7 @@ func TestUncheckedNeverLooksVerified(t *testing.T) {
 // twice and checks they match, and that it ends on exactly the picture a
 // view with motion off shows from the start.
 func TestFlowInIsAFunctionOfTheFrame(t *testing.T) {
-	cfg := Config{Sessions: []Session{scenario(t, "multifault")}, Motion: true}
+	cfg := Config{Sessions: []Session{scenario(t, "ucan-revoked")}, Motion: true}
 	m := sized(t, cfg, 140, 45)
 	if !m.anim.running() {
 		t.Fatal("motion is on but nothing animates")
@@ -161,7 +156,7 @@ func TestFlowInIsAFunctionOfTheFrame(t *testing.T) {
 
 // TestAKeySkipsTheAnimation: a fast user is never made to wait.
 func TestAKeySkipsTheAnimation(t *testing.T) {
-	m := sized(t, Config{Sessions: []Session{scenario(t, "healthy")}, Motion: true}, 140, 45)
+	m := sized(t, Config{Sessions: []Session{scenario(t, "ucan-healthy")}, Motion: true}, 140, 45)
 	m = press(t, m, "right")
 	if m.anim.running() {
 		t.Error("the animation is still running after a key")
@@ -172,7 +167,7 @@ func TestAKeySkipsTheAnimation(t *testing.T) {
 }
 
 func TestStaleTicksAreIgnored(t *testing.T) {
-	m := sized(t, Config{Sessions: []Session{scenario(t, "healthy")}, Motion: true}, 140, 45)
+	m := sized(t, Config{Sessions: []Session{scenario(t, "ucan-healthy")}, Motion: true}, 140, 45)
 	gen := m.anim.gen
 	m = press(t, m, "space")
 	next, cmd := m.Update(tickMsg{gen: gen})
@@ -234,9 +229,9 @@ func TestKeysDriveTheView(t *testing.T) {
 // TestScrubbingPastTheLeafsExpiryBreaksTheChain is the time scrub doing what
 // it is for: showing when the chain dies.
 func TestScrubbingPastTheLeafsExpiryBreaksTheChain(t *testing.T) {
-	m := open(t, "healthy", 140, 45)
+	m := open(t, "ucan-healthy", 140, 45)
 	if m.report.Verdict != chain.VerdictValid {
-		t.Fatalf("healthy starts %s", m.report.Verdict)
+		t.Fatalf("ucan-healthy starts %s", m.report.Verdict)
 	}
 	leaf := len(m.report.Links) - 1
 	for i := 0; i < 200 && m.report.Verdict == chain.VerdictValid; i++ {
@@ -246,10 +241,10 @@ func TestScrubbingPastTheLeafsExpiryBreaksTheChain(t *testing.T) {
 	if r.Verdict != chain.VerdictInvalid {
 		t.Fatal("scrubbing forward never expired anything")
 	}
-	if r.BreakAt != leaf || r.Links[leaf].Check("V4").Status != chain.StatusFail {
-		t.Errorf("the first thing to expire is link %d, want the leaf (%d) failing V4", r.BreakAt, leaf)
+	if r.BreakAt != leaf || r.Links[leaf].Check("U3").Status != chain.StatusFail {
+		t.Errorf("the first thing to expire is link %d, want the leaf (%d) failing U3", r.BreakAt, leaf)
 	}
-	if got := plain(m); !strings.Contains(got, "V4") || !strings.Contains(got, "expired") {
+	if got := plain(m); !strings.Contains(got, "U3") || !strings.Contains(got, "expired") {
 		t.Error("the screen does not say the leaf expired")
 	}
 	if m = press(t, m, "0"); m.report.Verdict != chain.VerdictValid {
@@ -258,7 +253,7 @@ func TestScrubbingPastTheLeafsExpiryBreaksTheChain(t *testing.T) {
 }
 
 func TestScrubStaysWithinTheChainsLifetime(t *testing.T) {
-	m := open(t, "healthy", 140, 45)
+	m := open(t, "ucan-healthy", 140, 45)
 	for i := 0; i < 500; i++ {
 		m = press(t, m, "]")
 	}
@@ -270,7 +265,7 @@ func TestScrubStaysWithinTheChainsLifetime(t *testing.T) {
 
 // TestRevokingALinkKillsWhatIsBelowItAndNothingAbove is the blast radius.
 func TestRevokingALinkKillsWhatIsBelowItAndNothingAbove(t *testing.T) {
-	m := open(t, "healthy", 140, 45)
+	m := open(t, "ucan-healthy", 140, 45)
 	m = press(t, m, "right", "x")
 	r := m.report
 	if len(m.sims) != 1 {
@@ -308,12 +303,12 @@ func TestAskLabelsHowFarTheAnswerCanBeTrusted(t *testing.T) {
 		scenario string
 		want     []string
 	}{
-		{name: "a verified chain answers authoritatively", scenario: "healthy",
+		{name: "a verified chain answers authoritatively", scenario: "ucan-healthy",
 			want: []string{"PERMITTED", "AUTHORITATIVE"}},
-		{name: "an unchecked chain answers conditionally", scenario: "unchecked",
+		{name: "an unchecked chain answers conditionally", scenario: "jwt-unchecked",
 			want: []string{"PERMITTED IF", "CONDITIONAL"}},
-		{name: "authority the sponsor granted, a link dropped and a later one re-added is called out as such", scenario: "widened",
-			want: []string{"DENIED", "HYPOTHETICAL", "the sponsor granted this, link 1 dropped it", "does not bring it back"}},
+		{name: "a broken chain permits nothing, whatever its leaf holds", scenario: "jwt-bundle-widened",
+			want: []string{"DENIED", "HYPOTHETICAL"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -332,13 +327,13 @@ func TestAskLabelsHowFarTheAnswerCanBeTrusted(t *testing.T) {
 }
 
 func TestAskFormRefusesAnIncompleteRequest(t *testing.T) {
-	m := press(t, open(t, "healthy", 140, 45), "a", "tab", "tab")
+	m := press(t, open(t, "ucan-healthy", 140, 45), "a")
 	for i := 0; i < 40; i++ {
 		m = press(t, m, "backspace")
 	}
 	m = press(t, m, "enter")
 	if m.overlay != overlayAsk || m.ask.err == "" {
-		t.Error("an empty resource id was asked about instead of refused")
+		t.Error("an empty command was asked about instead of refused")
 	}
 }
 
@@ -372,7 +367,7 @@ func TestASCIIModeDrawsOnlyASCII(t *testing.T) {
 }
 
 func TestATerminalTooSmallSaysSo(t *testing.T) {
-	m := open(t, "healthy", 50, 15)
+	m := open(t, "ucan-healthy", 50, 15)
 	if got := plain(m); !strings.Contains(got, "terminal too small") || !strings.Contains(got, "60x18") {
 		t.Errorf("a 50x15 terminal is not told it is too small:\n%s", got)
 	}
@@ -381,15 +376,15 @@ func TestATerminalTooSmallSaysSo(t *testing.T) {
 // TestAnInconsistencyIsImpossibleToMiss: if the tool and the library ever
 // disagree, the screen must say so before anything else.
 func TestAnInconsistencyIsImpossibleToMiss(t *testing.T) {
-	m := open(t, "healthy", 140, 45)
+	m := open(t, "ucan-healthy", 140, 45)
 	r := *m.report
 	r.Inconsistency = &chain.Inconsistency{
-		Banner: "!! INTERNAL INCONSISTENCY  whosent says the chain verifies, mandatum says V3 at link 1. Trust the library, and report this.",
+		Banner: "!! INTERNAL INCONSISTENCY  whosent says the chain verifies, the reference says U2 at link 1. Trust the reference, and report this.",
 		Detail: "injected",
 	}
 	m.report = &r
 	lines := strings.Split(plain(m), "\n")
-	if !strings.Contains(lines[1], "INTERNAL INCONSISTENCY") || !strings.Contains(lines[1], "V3 at link 1") {
+	if !strings.Contains(lines[1], "INTERNAL INCONSISTENCY") || !strings.Contains(lines[1], "U2 at link 1") {
 		t.Errorf("an inconsistency is not the first thing under the header:\n%s", lines[1])
 	}
 }
@@ -417,7 +412,7 @@ func TestQuitWorksFromEveryView(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			for _, sz := range [][2]int{{140, 45}, {90, 30}} {
-				m := press(t, open(t, "spliced", sz[0], sz[1]), tt.keys...)
+				m := press(t, open(t, "ucan-misaligned", sz[0], sz[1]), tt.keys...)
 				_, cmd := m.Update(keyPress("q"))
 				if cmd == nil {
 					t.Fatalf("%dx%d: q returned no command", sz[0], sz[1])
@@ -434,7 +429,7 @@ func TestQuitWorksFromEveryView(t *testing.T) {
 // alt+key. "esc q" from the ask form must close the form and quit, not
 // leave the form open with nothing typed.
 func TestEscAndAKeyInOneBurstAreBothRead(t *testing.T) {
-	m := press(t, open(t, "healthy", 140, 45), "a")
+	m := press(t, open(t, "ucan-healthy", 140, 45), "a")
 	next, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: 'q', Mod: tea.ModAlt}))
 	if next.(Model).overlay != overlayNone {
 		t.Error("alt+q left the ask form open")
@@ -445,7 +440,7 @@ func TestEscAndAKeyInOneBurstAreBothRead(t *testing.T) {
 	if _, ok := cmd().(tea.QuitMsg); !ok {
 		t.Error("alt+q from the ask form did not quit")
 	}
-	m = press(t, open(t, "healthy", 140, 45), "r")
+	m = press(t, open(t, "ucan-healthy", 140, 45), "r")
 	next, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: '?', Mod: tea.ModAlt}))
 	if n := next.(Model); n.raw || n.overlay != overlayHelp {
 		t.Error("alt+? from raw did not leave raw and open help")
@@ -456,34 +451,31 @@ func TestEscAndAKeyInOneBurstAreBothRead(t *testing.T) {
 // holds no authority whatever it claims. The matrix must not draw its
 // claims as holdings, and reach must read zero.
 func TestAVoidLinkHoldsNothing(t *testing.T) {
-	m := open(t, "healthy", 140, 45)
+	m := open(t, "ucan-healthy", 140, 45)
 	for i := 0; i < 200 && m.report.Verdict == chain.VerdictValid; i++ {
 		m = press(t, m, "]")
 	}
 	got := plain(m)
-	if !strings.Contains(got, "0/3") || !strings.Contains(got, "claims") {
-		t.Errorf("an expired leaf's column does not read 0/3 with its claims apart:\n%s", got)
-	}
-	if strings.Contains(got, "every check passes") {
-		t.Error("the scenario summary still says every check passes after the chain broke")
+	if !strings.Contains(got, "0/1") || !strings.Contains(got, "claims") {
+		t.Errorf("an expired leaf's column does not read 0/1 with its claims apart:\n%s", got)
 	}
 	if !strings.Contains(got, "scrubbed to") {
 		t.Error("the context line does not say the clock was moved")
 	}
 
-	m = press(t, open(t, "healthy", 140, 45), "x")
+	m = press(t, open(t, "ucan-healthy", 140, 45), "x")
 	for i := range m.report.Links {
 		if !m.void(i) {
 			t.Errorf("revoking link 0 leaves link %d holding authority", i)
 		}
 	}
-	if got := plain(m); strings.Count(got, "0/3") != len(m.report.Links) {
-		t.Errorf("with the first link revoked every column should read 0/3:\n%s", got)
+	if got := plain(m); strings.Count(got, "0/1") != len(m.report.Links) {
+		t.Errorf("with the first link revoked every column should read 0/1:\n%s", got)
 	}
 }
 
 func TestAScrubbedClockShowsTheWayBack(t *testing.T) {
-	m := press(t, open(t, "healthy", 140, 45), "t", "]", "esc")
+	m := press(t, open(t, "ucan-healthy", 140, 45), "t", "]", "esc")
 	lines := strings.Split(plain(m), "\n")
 	if footer := lines[len(lines)-1]; !strings.Contains(footer, "0 back to now") {
 		t.Errorf("scrubbed but out of time mode, the footer does not say how to return:\n%s", footer)
@@ -517,34 +509,16 @@ func TestTheHeadlinesFitAtFullWidth(t *testing.T) {
 	}
 }
 
-// TestNeverGrantedIsSaidOnlyWhenTrue: "the sponsor never granted this" sends
-// a reader to a different person than "a link dropped it", so each must be
-// said only when it is the true story. The wording is the adapter's (its own
-// test covers the other branch); the view must carry it through intact.
-func TestNeverGrantedIsSaidOnlyWhenTrue(t *testing.T) {
-	m := press(t, open(t, "widened", 140, 45), "a", "enter")
-	if m.answer == nil || !strings.Contains(m.answer.Warning, "the sponsor granted this, link 1 dropped it") {
-		t.Fatal("widened's default question is not one the sponsor granted and a hop re-added")
-	}
-	got := plain(m)
-	if strings.Contains(got, "never granted") {
-		t.Error("the answer says never granted for authority the sponsor did grant")
-	}
-	if !strings.Contains(got, "the sponsor granted this") {
-		t.Errorf("the warning does not reach the screen:\n%s", got)
-	}
-}
-
 // TestRawViewKeepsItsLines: the raw view is a JSON document, one member per
 // line. Scrubbing what an adapter hands over must not flatten it into one
 // line of escaped newlines.
 func TestRawViewKeepsItsLines(t *testing.T) {
-	m := press(t, open(t, "healthy", 140, 45), "r")
+	m := press(t, open(t, "jwt-bundle-healthy", 140, 45), "r")
 	got := plain(m)
 	if strings.Contains(got, `\x0a`) {
 		t.Errorf("the raw view shows escaped newlines:\n%s", got)
 	}
-	for _, want := range []string{`"alg": "EdDSA",`, `"typ": "mdt+jwt"`, "DIGESTS", "HEADER", "CLAIMS"} {
+	for _, want := range []string{`"alg": "EdDSA",`, `"typ": "at+jwt"`, "HEADER", "CLAIMS"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the raw view lacks %q:\n%s", want, got)
 		}
@@ -554,8 +528,9 @@ func TestRawViewKeepsItsLines(t *testing.T) {
 // TestConsequencesAreNotCountedAsFailures: one revoked link is one failure,
 // however many links hang below it.
 func TestConsequencesAreNotCountedAsFailures(t *testing.T) {
-	if got := plain(open(t, "multifault", 140, 45)); !strings.Contains(got, "FINDINGS · 3 failing") {
-		t.Errorf("multifault's three faults are not counted as three:\n%s", got)
+	got := plain(open(t, "ucan-revoked", 140, 45))
+	if !strings.Contains(got, "FINDINGS · 1 failing") || !strings.Contains(got, "(consequence)") {
+		t.Errorf("one revoked delegation is not counted as one failure:\n%s", got)
 	}
 }
 

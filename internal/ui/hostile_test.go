@@ -9,10 +9,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/kanywst/whosent/internal/formats/mandatum"
+	"github.com/kanywst/whosent/internal/formats/all"
 	"github.com/kanywst/whosent/internal/termsafe"
 	"github.com/kanywst/whosent/pkg/chain"
-	"github.com/kanywst/whosent/pkg/diagnose"
 )
 
 // hostile is what a chain's author could put in any string field to take
@@ -21,9 +20,10 @@ import (
 // line, a newline that forges one, and a bidi override that reverses text.
 const hostile = "evil\x1b[2J\x1b[H\x1b[32m VALID \x1b]52;c;cm0gLXJmIH4=\x07\rok\nforged\u202egnp.exe\u2066x\u2069\x9b31m"
 
-// hostileLink is a compact serialization whose every string is hostile. It is
-// not signed by anyone; the view must still draw it, and draw it safely.
-func hostileLink(t *testing.T, depth int, parent string) []byte {
+// hostileToken is a compact JWT whose every string is hostile, with an
+// act chain two deep. It is not signed by anyone; the view must still draw
+// it, and draw it safely.
+func hostileToken(t *testing.T, n int) string {
 	t.Helper()
 	enc := func(v any) string {
 		b, err := json.Marshal(v)
@@ -32,50 +32,40 @@ func hostileLink(t *testing.T, depth int, parent string) []byte {
 		}
 		return base64.RawURLEncoding.EncodeToString(b)
 	}
-	header := map[string]any{"alg": "EdDSA", "typ": "mdt+jwt", "kid": hostile}
-	mdt := map[string]any{
-		"v":         1,
-		"root":      map[string]any{"iss": hostile, "sub": hostile, "amr": []string{hostile}},
-		"depth":     depth,
-		"max_depth": 3 - depth,
-		"cap": []map[string]any{{
-			"resource":   map[string]any{"type": hostile, "id": hostile + "*", "tags": []string{hostile}},
-			"action":     map[string]any{"name": hostile},
-			"conditions": map[string]any{hostile: map[string]any{"eq": hostile, "in": nil}},
-		}},
-		"seq": map[string]any{"max_invocations": 5, "constraints": []map[string]any{{
-			"id":     hostile,
-			"forbid": map[string]any{"action": hostile},
-			"after":  map[string]any{"resource.tags": []string{hostile}},
-		}}},
-	}
-	if parent != "" {
-		mdt["parent"] = parent
-	}
+	header := map[string]any{"alg": "EdDSA", "typ": "at+jwt", "kid": hostile}
+	actor := map[string]any{"sub": hostile + "-a", "iss": hostile, "sub_profile": hostile,
+		"act": map[string]any{"sub": hostile + "-b", "iss": hostile}}
 	claims := map[string]any{
-		"iss": hostile, "sub": hostile + "-" + string(rune('a'+depth)), "aud": hostile,
-		"iat": 1789200000, "exp": 1789203600, "jti": hostile, "mdt": mdt,
+		"iss": hostile, "sub": hostile, "aud": hostile, "client_id": hostile, "scope": hostile + " " + hostile + "2",
+		"iat": 1789200000, "exp": 1789203600 + n, "jti": hostile, "act": actor,
+		"may_act": map[string]any{"sub": hostile, "iss": hostile},
 	}
-	return []byte(enc(header) + "." + enc(claims) + "." + base64.RawURLEncoding.EncodeToString([]byte("not a signature")))
+	return enc(header) + "." + enc(claims) + "." + base64.RawURLEncoding.EncodeToString([]byte("not a signature"))
 }
 
 // TestAHostileChainCannotReachTheTerminal renders every view of a chain whose
 // every string is an attack, removes the colour sequences lipgloss itself
 // writes, and checks nothing a terminal would act on is left.
 func TestAHostileChainCannotReachTheTerminal(t *testing.T) {
-	l0 := hostileLink(t, 0, "")
-	l1 := hostileLink(t, 1, diagnose.Short("sha-256:"+hostile))
-	aud := hostile
-	mandatumSession := Session{
-		Name: hostile, Title: hostile, Summary: hostile,
-		Chain: mandatum.NewSession([][]byte{l0, l1, []byte(hostile)}, diagnose.Options{Audience: &aud},
-			diagnose.InputInfo{Source: hostile, Format: hostile, ToolCall: &diagnose.ToolCall{Name: hostile}}),
+	bundle, err := json.Marshal([]string{hostileToken(t, 0), hostileToken(t, 1)})
+	if err != nil {
+		t.Fatal(err)
 	}
+	aud := hostile
+	a, err := all.Registry().Lookup("jwt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jwtChain, err := a.Open(context.Background(), chain.Inputs{Data: bundle, Source: hostile, Audience: &aud, At: time.Unix(1789200060, 0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	jwtSession := Session{Name: hostile, Title: hostile, Summary: hostile, Chain: jwtChain}
 	// An adapter can put anything in any field, and adapters never
 	// sanitise: the view is the one place it happens. This session fills
 	// every string the model has with the attack.
 	adapterSession := Session{Name: hostile, Title: hostile, Summary: hostile, Chain: hostileSession{}}
-	for _, s := range []Session{mandatumSession, adapterSession} {
+	for _, s := range []Session{jwtSession, adapterSession} {
 		renderHostile(t, s)
 	}
 }
@@ -141,7 +131,7 @@ func (hostileSession) Evaluate(_ context.Context, eo chain.EvalOptions) (*chain.
 			Checks:   []chain.Check{{Rule: h, Status: chain.StatusFail, Detail: h}, {Rule: "H2", Status: chain.StatusUnchecked}},
 			Findings: []chain.Finding{{Rule: h, Link: i, Hop: -1, Severity: chain.SeverityFail, Detail: h, Spec: h}},
 			IssuedAt: eo.At.Add(-time.Hour), ExpiresAt: eo.At.Add(time.Hour), Remaining: time.Hour,
-			Depth: &chain.Pips{Left: 1, Total: 2}, RevokeID: h,
+			RevokeID: h,
 			Sections: sections, Raw: sections,
 		})
 	}

@@ -27,7 +27,7 @@ func emitScenario(t *testing.T, name string) []string {
 	if _, err := os.Stat(filepath.Join(dir, "manifest.json")); err != nil {
 		t.Errorf("%s wrote no manifest.json, which demo --help promises: %v", name, err)
 	}
-	fields := strings.Fields(command)[2:]
+	fields := shellWords(command)[2:]
 	for i, f := range fields {
 		if _, err := os.Stat(filepath.Join(dir, f)); err == nil && !strings.HasPrefix(f, "-") {
 			fields[i] = filepath.Join(dir, f)
@@ -36,10 +36,36 @@ func emitScenario(t *testing.T, name string) []string {
 	return fields
 }
 
-// ask used to send Mandatum's question to every format: a JWT could not be
-// asked anything, and a Biscuit token was asked nothing at all and decided
-// by "allow if true". Each format now gets its own question, a flag it has
-// no use for is refused, and nothing is filled in from a default.
+// shellWords splits a command line the way a shell would for the commands
+// --emit prints: on spaces, with single quotes grouping a word.
+func shellWords(s string) []string {
+	var out []string
+	var cur strings.Builder
+	quoted, inWord := false, false
+	for _, r := range s {
+		switch {
+		case r == '\'':
+			quoted = !quoted
+			inWord = true
+		case r == ' ' && !quoted:
+			if inWord {
+				out = append(out, cur.String())
+				cur.Reset()
+				inWord = false
+			}
+		default:
+			cur.WriteRune(r)
+			inWord = true
+		}
+	}
+	if inWord {
+		out = append(out, cur.String())
+	}
+	return out
+}
+
+// Each format gets its own question, a flag it has no use for is refused,
+// and nothing is filled in from a default.
 func TestAskSpeaksEachFormatsQuestion(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -51,7 +77,7 @@ func TestAskSpeaksEachFormatsQuestion(t *testing.T) {
 		{"a JWT is asked about a scope it holds", "jwt-bundle-healthy", []string{"--scope", "files:read"}, ExitValid, "PERMITTED"},
 		{"a JWT is asked about a scope it lacks", "jwt-bundle-healthy", []string{"--scope", "admin"}, ExitInvalid, "DENIED"},
 		{"a JWT question needs a scope", "jwt-bundle-healthy", nil, ExitUsage, "--scope"},
-		{"a resource flag does not apply to a JWT", "jwt-bundle-healthy", []string{"--scope", "files:read", "--tag", "x"}, ExitUsage, "--tag"},
+		{"a resource flag does not apply to a JWT", "jwt-bundle-healthy", []string{"--scope", "files:read", "--resource-id", "x"}, ExitUsage, "--resource-id"},
 		{"a Biscuit token runs its own authorizer", "biscuit-healthy", nil, ExitValid, "PERMITTED"},
 		{"a Biscuit request becomes facts", "biscuit-healthy", []string{"--resource-id", "orders", "--action", "delete"}, ExitInvalid, "DENIED"},
 		{"the authorizer's request is what the denied scenario asks", "biscuit-denied", nil, ExitInvalid, "DENIED"},
@@ -62,7 +88,7 @@ func TestAskSpeaksEachFormatsQuestion(t *testing.T) {
 		{"a Fly.io request is judged by its caveats", "macaroon-fly", []string{"--field", "org=4242", "--field", "app=123", "--action", "r"}, ExitValid, "PERMITTED"},
 		{"a Fly.io action outside the mask is denied", "macaroon-fly", []string{"--field", "org=4242", "--field", "app=123", "--action", "d"}, ExitInvalid, "DENIED"},
 		{"a Fly.io question needs an organization", "macaroon-fly", []string{"--action", "r"}, ExitUsage, "org"},
-		{"--policy does not apply to Mandatum", "healthy", []string{"--resource-id", "web.fetch", "--policy", "x"}, ExitUsage, "--policy"},
+		{"--policy does not apply to a JWT", "jwt-bundle-healthy", []string{"--scope", "files:read", "--policy", "x"}, ExitUsage, "--policy"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -76,20 +102,19 @@ func TestAskSpeaksEachFormatsQuestion(t *testing.T) {
 	}
 }
 
-// An input flag a format has no use for used to be reported by Biscuit
-// alone, and only in some places: a JWT given --revocations said nothing,
-// which reads as if a revocation list had been checked. Every format now
-// says so, in check's human output and its JSON.
+// An input flag that silently does nothing reads as one that was checked,
+// so every format says which it ignored, in check's human output and its
+// JSON.
 func TestEveryFormatSaysWhichInputsItIgnored(t *testing.T) {
 	tests := []struct {
 		scenario string
 		extra    []string
 		flag     string
 	}{
-		{"jwt-bundle-healthy", []string{"--revocations", "x.json"}, "--revocations"},
+		{"jwt-bundle-healthy", []string{"--revoked-jtis", "x.txt"}, "--revoked-jtis"},
 		{"jwt-bundle-healthy", []string{"--fact", `operation("read")`}, "--fact"},
 		{"biscuit-healthy", []string{"--audience", "https://api"}, "--audience"},
-		{"healthy", []string{"--authorizer", "authz.datalog"}, "--authorizer"},
+		{"ucan-healthy", []string{"--authorizer", "authz.datalog"}, "--authorizer"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.scenario+" "+tt.flag, func(t *testing.T) {

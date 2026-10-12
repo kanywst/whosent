@@ -126,12 +126,6 @@ func (m Model) open(i int) Model {
 // simulations. The time scrub and the revocation simulation both come
 // through here, so they always show exactly what `whosent check` would say
 // with the same inputs.
-//
-// The scrub is bounded to the chain's own lifetime (see scrubRange), so a
-// demo's revocation set, minted at the demo's base time, never ages past its
-// 24h limit inside the range; no MaxAge override is needed, and none is made.
-// For a real chain the set's age at the scrubbed time is a genuine fact and
-// is shown as one.
 func (m Model) evaluate() Model {
 	s := m.session()
 	if s.Chain == nil {

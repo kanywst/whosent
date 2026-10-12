@@ -40,7 +40,6 @@ archives:
     name_template: "{{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}"
     files:
       - LICENSE
-      - NOTICE
       - README.md
       - man/man1/*
       - completions/*
