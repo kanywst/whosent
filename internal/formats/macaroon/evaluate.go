@@ -398,6 +398,9 @@ func (e *evaluation) flyRequestGuard(b *flyBundle) {
 		}
 	}
 	verr := fly.NewCaveatSet(cavs...).Validate(accessAt{Access: e.s.flyReq, at: e.at})
+	if e.s.reqRefuse != nil {
+		verr = e.s.reqRefuse()
+	}
 	if (verr != nil) != e.flyRefused {
 		e.inc = &chain.Inconsistency{
 			Banner: "INTERNAL INCONSISTENCY: superfly/macaroon's Validate and the caveats one by one judge the request differently",

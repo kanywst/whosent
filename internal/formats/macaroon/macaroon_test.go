@@ -582,3 +582,35 @@ func TestAskReportsADisagreementWithTheLibrary(t *testing.T) {
 		t.Errorf("a disagreement went unreported: %s, %+v", res.Verdict, res.Inconsistency)
 	}
 }
+
+// When superfly/macaroon's Validate and the caveats one by one judge the
+// --fact request differently, the disagreement is reported and a refusal
+// stands, whichever side refused.
+func TestARequestDisagreementIsReported(t *testing.T) {
+	tests := []struct {
+		name    string
+		action  string
+		refuse  error
+		verdict chain.Verdict
+	}{
+		{"Validate refuses what every caveat allows", "r", errors.New("injected refusal"), chain.VerdictInvalid},
+		{"Validate allows what a caveat refuses", "d", nil, chain.VerdictInvalid},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := open(t, "macaroon-fly-request")
+			s.flyReq, s.flyReqText, _ = flyRequest([]string{"org=4242", "app=123", "action=" + tt.action})
+			s.reqRefuse = func() error { return tt.refuse }
+			c := evaluate(t, s, time.Minute)
+			if c.Inconsistency == nil || c.Verdict != tt.verdict {
+				t.Errorf("inconsistency %v, verdict %s; want a reported disagreement and %s", c.Inconsistency, c.Verdict, tt.verdict)
+			}
+		})
+	}
+}
+
+func TestARequestKeyGivenTwiceIsRefused(t *testing.T) {
+	if _, _, err := flyRequest([]string{"org=4242", "action=d", "action=r"}); err == nil {
+		t.Error("action given twice was accepted")
+	}
+}

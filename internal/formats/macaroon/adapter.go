@@ -153,7 +153,11 @@ func flyRequest(facts []string) (*flyio.Access, []string, error) {
 		if !ok {
 			return nil, nil, fmt.Errorf("--fact %q: a Fly.io request is given as KEY=VALUE (org, action, app, feature, machine, volume, mutation)", f)
 		}
-		values[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		k, v = strings.TrimSpace(k), strings.TrimSpace(v)
+		if prev, dup := values[k]; dup {
+			return nil, nil, fmt.Errorf("--fact %s is given twice (%q and %q): give each key once", k, prev, v)
+		}
+		values[k] = v
 	}
 	a, req, err := flyAccess(values)
 	if err != nil {
@@ -224,6 +228,9 @@ type session struct {
 	// askRefuse, set only by tests, replaces the library's answer to a
 	// question, to prove a disagreement is reported.
 	askRefuse func() error
+	// reqRefuse, set only by tests, replaces Validate's answer to the
+	// --fact request, to prove a disagreement is reported.
+	reqRefuse func() error
 }
 
 func (s *session) Info() chain.Info { return chain.Info{Format: format, At: s.at} }
