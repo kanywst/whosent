@@ -614,3 +614,31 @@ func TestARequestKeyGivenTwiceIsRefused(t *testing.T) {
 		t.Error("action given twice was accepted")
 	}
 }
+
+// A chain the session's own --fact request made INVALID permits nothing,
+// whatever ask is asked, and a request-guard disagreement reaches the answer.
+func TestAskOnAChainTheRequestBrokePermitsNothing(t *testing.T) {
+	s := open(t, "macaroon-fly-request")
+	s.flyReq, s.flyReqText, _ = flyRequest([]string{"org=4242", "app=123", "action=d"})
+	c := evaluate(t, s, time.Minute)
+	if c.Verdict != chain.VerdictInvalid {
+		t.Fatalf("a refused delete is %s", c.Verdict)
+	}
+	res, err := s.Ask(context.Background(), c, map[string]string{askOrg: "4242", askAction: "r", askApp: "123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Permitted || res.Judged != "" {
+		t.Errorf("permitted %v, judged %q from an INVALID chain", res.Permitted, res.Judged)
+	}
+
+	s.reqRefuse = func() error { return nil }
+	c = evaluate(t, s, time.Minute)
+	res, err = s.Ask(context.Background(), c, map[string]string{askOrg: "4242", askAction: "r", askApp: "123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Inconsistency == nil || res.Inconsistency == nil {
+		t.Errorf("the request guard's disagreement did not reach the answer: chain %v, answer %v", c.Inconsistency, res.Inconsistency)
+	}
+}

@@ -359,8 +359,8 @@ func CheckAsk(t *testing.T, a chain.Asker, c *chain.Chain) {
 	if res.Permitted && c.Verdict == chain.VerdictInvalid {
 		t.Error("an INVALID chain permitted something")
 	}
-	if res.Judged != "" && c.Verdict == chain.VerdictInvalid {
-		t.Error("an answer that rests on a judged chain, from an INVALID chain")
+	if res.Judged != "" && c.Verdict != chain.VerdictIncomplete {
+		t.Errorf("an answer that rests on a judged chain, from a %s chain: only an INCOMPLETE chain can be resolved by the question", c.Verdict)
 	}
 	if res.Permitted && !res.Conditional && c.Verdict != chain.VerdictValid && res.Judged != chain.VerdictValid {
 		t.Errorf("an unconditional permission from a %s chain", c.Verdict)
