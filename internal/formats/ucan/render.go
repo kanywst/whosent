@@ -89,3 +89,26 @@ func writeJSON(b *strings.Builder, v Value, indent, prefix string) {
 
 // String writes the statement as it appears in a pol.
 func (s Statement) String() string { return dagJSON(s.Src, "") }
+
+// label is the statement as a short reading for a matrix row: the
+// selector, the operator and the value, with connectives spelled out.
+func (s Statement) label() string {
+	switch s.Op {
+	case "not":
+		return "not " + s.Sub.label()
+	case "and", "or":
+		if len(s.Subs) == 0 {
+			return s.Op + " []"
+		}
+		parts := make([]string, len(s.Subs))
+		for i, sub := range s.Subs {
+			parts[i] = sub.label()
+		}
+		return "(" + strings.Join(parts, " "+s.Op+" ") + ")"
+	case "all", "any":
+		return s.Op + " " + s.SelText + ": " + s.Sub.label()
+	case "like":
+		return s.SelText + " like " + quote(s.Pattern)
+	}
+	return s.SelText + " " + s.Op + " " + dagJSON(s.Value, "")
+}

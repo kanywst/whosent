@@ -186,6 +186,15 @@ func (a *analysis) name(did string) string {
 	return shortDID(did)
 }
 
+// who names a DID in a finding: the full DID, after a demo's label when
+// there is one.
+func (a *analysis) who(did string) string {
+	if n, ok := a.opts.Names[principal(did)]; ok {
+		return n + " (" + shortDID(did) + ")"
+	}
+	return did
+}
+
 func (a *analysis) root() chain.Root {
 	r := chain.Root{Kind: "did"}
 	if a.subject == "" {
@@ -197,7 +206,6 @@ func (a *analysis) root() chain.Root {
 	if r.Name != shortDID(a.subject) {
 		r.Details = append(r.Details, shortDID(a.subject))
 	}
-	r.Details = append(r.Details, "the subject")
 	return r
 }
 
@@ -476,7 +484,7 @@ func (a *analysis) matrix() *chain.Matrix {
 			continue
 		}
 		for _, s := range l.tok.Policy {
-			row := chain.Row{Label: s.String(), Cells: make([]chain.Cell, n)}
+			row := chain.Row{Label: s.label(), Cells: make([]chain.Cell, n)}
 			for k := i; k < n; k++ {
 				row.Cells[k] = chain.Cell{Kind: chain.CellNarrowed, Changed: k == i}
 			}

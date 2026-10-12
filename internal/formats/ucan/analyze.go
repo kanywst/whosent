@@ -383,8 +383,8 @@ func (a *analysis) principals(n *node) {
 			return
 		}
 		if principal(t.Iss) != principal(*t.Sub) {
-			n.set(RulePrincipals, chain.StatusFail, "the first delegation is issued by %s, not by its subject %s", shortDID(t.Iss), shortDID(*t.Sub))
-			n.find(RulePrincipals, chain.SeverityFail, "the first delegation must be issued by its subject: issued by %s, subject %s", t.Iss, *t.Sub)
+			n.set(RulePrincipals, chain.StatusFail, "the first delegation is issued by %s, not by its subject %s", a.name(t.Iss), a.name(*t.Sub))
+			n.find(RulePrincipals, chain.SeverityFail, "the first delegation must be issued by its subject: issued by %s, subject %s", a.who(t.Iss), a.who(*t.Sub))
 			return
 		}
 		n.set(RulePrincipals, chain.StatusPass, "issued by its subject")
@@ -395,8 +395,8 @@ func (a *analysis) principals(n *node) {
 		if n.inv {
 			what = "invoked"
 		}
-		n.set(RulePrincipals, chain.StatusFail, "%s by %s, but the delegation above went to %s", what, shortDID(t.Iss), shortDID(p.tok.Aud))
-		n.find(RulePrincipals, chain.SeverityFail, "%s by %s, but the delegation above was addressed to %s", what, t.Iss, p.tok.Aud)
+		n.set(RulePrincipals, chain.StatusFail, "%s by %s, but the delegation above went to %s", what, a.name(t.Iss), a.name(p.tok.Aud))
+		n.find(RulePrincipals, chain.SeverityFail, "%s by %s, but the delegation above was addressed to %s", what, a.who(t.Iss), a.who(p.tok.Aud))
 	default:
 		n.set(RulePrincipals, chain.StatusPass, "issued by the audience of the delegation above")
 	}
@@ -420,8 +420,8 @@ func (a *analysis) subjectRule(n *node) {
 	case t.Sub == nil:
 		n.set(RuleSubject, chain.StatusPass, "powerline: takes the chain's subject")
 	case a.subject != "" && principal(*t.Sub) != principal(a.subject):
-		n.set(RuleSubject, chain.StatusFail, "about %s, the chain is about %s", shortDID(*t.Sub), shortDID(a.subject))
-		n.find(RuleSubject, chain.SeverityFail, "names subject %s, but the chain is about %s", *t.Sub, a.subject)
+		n.set(RuleSubject, chain.StatusFail, "about %s, the chain is about %s", a.name(*t.Sub), a.name(a.subject))
+		n.find(RuleSubject, chain.SeverityFail, "names subject %s, but the chain is about %s", a.who(*t.Sub), a.who(a.subject))
 	default:
 		n.set(RuleSubject, chain.StatusPass, "about the chain's subject")
 	}
@@ -466,7 +466,7 @@ func (a *analysis) proofs(n *node) {
 			return
 		}
 		n.set(RuleProofs, chain.StatusFail, "no proofs, and the invoker is not the subject")
-		n.find(RuleProofs, chain.SeverityFail, "no proofs, and %s is not the subject %s", n.tok.Iss, a.subject)
+		n.find(RuleProofs, chain.SeverityFail, "no proofs, and %s is not the subject %s", a.who(n.tok.Iss), a.who(a.subject))
 	default:
 		for _, l := range a.links {
 			if l.missing() {

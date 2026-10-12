@@ -206,7 +206,9 @@ var specs = []spec{
 }
 
 func (d demo) options() Options {
-	o := Options{Names: names()}
+	// The command line's default skew, so a demo reads as its emitted
+	// fixture checks.
+	o := Options{Names: names(), Skew: 30 * time.Second}
 	if !d.noRevoke {
 		o.Revoked = map[string]bool{}
 		for _, r := range d.revoked {
