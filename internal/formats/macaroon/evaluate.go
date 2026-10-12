@@ -402,9 +402,15 @@ func (e *evaluation) flyRequestGuard(b *flyBundle) {
 		verr = e.s.reqRefuse()
 	}
 	if (verr != nil) != e.flyRefused {
-		e.inc = &chain.Inconsistency{
-			Banner: "INTERNAL INCONSISTENCY: superfly/macaroon's Validate and the caveats one by one judge the request differently",
-			Detail: fmt.Sprintf("Validate says %v", verr),
+		detail := fmt.Sprintf("Validate says %v about the request", verr)
+		if e.inc != nil {
+			// The signature guard's disagreement came first; keep it.
+			e.inc.Detail += "; " + detail
+		} else {
+			e.inc = &chain.Inconsistency{
+				Banner: "INTERNAL INCONSISTENCY: superfly/macaroon's Validate and the caveats one by one judge the request differently",
+				Detail: detail,
+			}
 		}
 		if verr != nil {
 			e.cf = append(e.cf, chain.Finding{Rule: RuleCaveat, Link: -1, Hop: -1, Severity: chain.SeverityFail,

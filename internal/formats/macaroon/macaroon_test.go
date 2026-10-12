@@ -642,3 +642,15 @@ func TestAskOnAChainTheRequestBrokePermitsNothing(t *testing.T) {
 		t.Errorf("the request guard's disagreement did not reach the answer: chain %v, answer %v", c.Inconsistency, res.Inconsistency)
 	}
 }
+
+// Two disagreements at once keep both: the signature guard's first, then
+// the request guard's.
+func TestTwoDisagreementsAreBothKept(t *testing.T) {
+	s := open(t, "macaroon-fly-request")
+	s.refuse = func() error { return errors.New("injected signature refusal") }
+	s.reqRefuse = func() error { return errors.New("injected request refusal") }
+	c := evaluate(t, s, time.Minute)
+	if c.Inconsistency == nil || !strings.Contains(c.Inconsistency.Detail, "injected signature refusal") || !strings.Contains(c.Inconsistency.Detail, "injected request refusal") {
+		t.Errorf("inconsistency %+v; want both disagreements", c.Inconsistency)
+	}
+}
