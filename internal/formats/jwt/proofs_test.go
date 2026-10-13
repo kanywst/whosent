@@ -157,6 +157,10 @@ func TestActorProofs(t *testing.T) {
 			pc.newer["sub_iss"] = "https://other-idp.example"
 			pc.token["sub_iss"] = demoOkta
 		}, allKeys, chain.StatusFail, "sub_iss", false},
+		{"a token whose sub_iss is not a string", func(pc *proofCase) {
+			pc.newer["sub_iss"] = demoOkta
+			pc.token["sub_iss"] = 5
+		}, allKeys, chain.StatusFail, "not a string", false},
 		{"a proof whose namespace matches the token's", func(pc *proofCase) {
 			pc.newer["sub_iss"], pc.older["sub_iss"] = demoOkta, demoOkta
 			pc.token["sub_iss"] = demoOkta

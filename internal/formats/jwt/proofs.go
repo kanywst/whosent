@@ -377,7 +377,10 @@ func (s *session) evalProofs(k int, at time.Time) proofChain {
 	// a token issued by one authorization server for a subject another
 	// names.
 	if newest.SubIss != "" {
-		switch tokSubIss, ok := t.Claims["sub_iss"].(string); {
+		raw, present := t.Claims["sub_iss"]
+		switch tokSubIss, ok := raw.(string); {
+		case present && !ok:
+			return fail("the token's sub_iss is " + jsonKind(raw) + ", not a string, so the subject's namespace cannot be compared")
 		case ok && tokSubIss != newest.SubIss:
 			return fail(fmt.Sprintf("the newest proof's subject is %q under %q, but the token puts it under %q (sub_iss)", newest.Sub, newest.SubIss, tokSubIss))
 		case !ok:
