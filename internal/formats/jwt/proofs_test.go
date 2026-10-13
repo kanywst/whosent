@@ -362,3 +362,19 @@ func TestBundleHeadlineDoesNotOverclaim(t *testing.T) {
 		t.Errorf("headline %q claims every actor signed", c.Headline)
 	}
 }
+
+// Without the next token's iat a proof's time is unknown, but what its
+// signature showed is kept: an unusable key document is still an error.
+func TestUnknownTimeKeepsTheSignatureResult(t *testing.T) {
+	s := newSession(nil, nil, nil, nil)
+	s.actorKeys = actorKeyring{{Iss: demoOkta, Sub: "planner-agent"}: {Source: "p.json", Err: "fetching keys: HTTP 500"}}
+	tok := &token{Actors: []actor{{Sub: "planner-agent", Iss: demoOkta, SubProfile: "ai_agent"}}}
+	p := parseProof(mint(keyPlanner, typActorProof, proofClaims(keyPlanner, demoOkta)))
+	if got := s.checkProof(tok, 0, p, base, false); got.Status != chain.StatusError || !strings.Contains(got.Detail, "HTTP 500") || !strings.Contains(got.Detail, "no iat") {
+		t.Errorf("unusable keys: %s %q", got.Status, got.Detail)
+	}
+	s.actorKeys = nil
+	if got := s.checkProof(tok, 0, p, base, false); got.Status != chain.StatusUnchecked || !got.NeedKeys || !strings.Contains(got.Detail, "no keys for actor") {
+		t.Errorf("missing keys: %s %q", got.Status, got.Detail)
+	}
+}

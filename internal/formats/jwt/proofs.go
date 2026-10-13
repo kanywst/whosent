@@ -469,7 +469,14 @@ func (s *session) checkProof(t *token, i int, p *proof, ref time.Time, refOK boo
 
 	switch {
 	case !refOK:
-		return proofCheck{Status: chain.StatusUnchecked, NeedKeys: sig.NeedKeys, Detail: "the next token has no iat, so whether this proof still held when it was exchanged is unknown"}
+		// The time is unknown, but whatever the signature found still
+		// stands: an unusable key document stays an error, and a missing
+		// key keeps its hint.
+		const when = "the next token has no iat, so whether this proof still held when it was exchanged is unknown"
+		if sig.Status == chain.StatusPass {
+			return proofCheck{Status: chain.StatusUnchecked, Detail: when}
+		}
+		return proofCheck{Status: sig.Status, NeedKeys: sig.NeedKeys, Detail: sig.Detail + "; and " + when}
 	case !ref.Add(-s.skew).Before(*p.Exp):
 		return proofCheck{Status: chain.StatusFail, Detail: "expired at " + stamp(*p.Exp) + "; an expired proof is rejected even for an older hop"}
 	case ref.Add(s.skew).Before(*p.Iat):
