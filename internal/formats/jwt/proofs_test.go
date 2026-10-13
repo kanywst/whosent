@@ -338,3 +338,27 @@ func TestPrhAlgsAreAtLeastSHA256(t *testing.T) {
 		}
 	}
 }
+
+// A bundle whose first token's actors all signed still has later actors
+// that only the issuer vouches for, so it never claims every actor signed.
+func TestBundleHeadlineDoesNotOverclaim(t *testing.T) {
+	first := newProofCase()
+	first.token["aud"] = demoOkta
+	first.newer["target"] = map[string]any{"aud": demoOkta}
+	first.token["iat"] = unix(base.Add(-5 * time.Minute))
+	first.token["jti"] = "t0"
+	delete(first.token, "actor_proofs_complete")
+	t0 := first.mint()
+	t1 := mint(keyOkta, "at+jwt", map[string]any{
+		"iss": demoOkta, "sub": demoUser, "aud": demoAPI, "jti": "t1",
+		"iat": unix(base.Add(-time.Minute)), "exp": unix(base.Add(20 * time.Minute)),
+		"act": act("summary-agent", "ai_agent", act("research-agent", "ai_agent", act("planner-agent", "ai_agent", nil))),
+	})
+	c := evalProofs([]string{t0, t1}, allKeys...)
+	if c.Verdict != chain.VerdictValid || c.Links[0].Asserted {
+		t.Fatalf("%s, planner asserted=%v: %v", c.Verdict, c.Links[0].Asserted, c.Findings())
+	}
+	if strings.Contains(c.Headline, "every actor") {
+		t.Errorf("headline %q claims every actor signed", c.Headline)
+	}
+}

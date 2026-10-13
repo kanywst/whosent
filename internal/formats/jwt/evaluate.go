@@ -659,7 +659,9 @@ func (s *session) describe(c *chain.Chain, plans []plan, pcs []proofChain, at ti
 	case c.Verdict == chain.VerdictValid && asserted > 0:
 		c.Headline = fmt.Sprintf("The token verifies. Its %d prior actor%s %s the issuer's word, not a verified chain.",
 			asserted, plural(asserted), map[bool]string{true: "is", false: "are"}[asserted == 1])
-	case c.Verdict == chain.VerdictValid && signed > 0:
+	case c.Verdict == chain.VerdictValid && signed > 0 && !s.bundle():
+		// Only for one token: a bundle's later actors stand on the issuer's
+		// signature of their own token, not on a proof of theirs.
 		c.Headline = "The token verifies, and every actor in it signed its own hop."
 	}
 
