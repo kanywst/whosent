@@ -17,6 +17,11 @@ type plan struct {
 	// named is the token that names an asserted actor.
 	named int
 	actor actor
+	// proof is the index in token named's actor_proofs of the proof that
+	// covers this actor, or -1. signed is set when that proof is relied on,
+	// so the link is the actor's own word rather than the issuer's.
+	proof  int
+	signed bool
 }
 
 // plans lays the chain out. The first token's prior actors come first, as
@@ -27,12 +32,13 @@ func (s *session) plans() []plan {
 	var out []plan
 	t0 := s.tokens[0]
 	if t0.Problem == "" && t0.hasExplicitActor() {
-		for _, a := range t0.Actors[:len(t0.Actors)-1] {
-			out = append(out, plan{tok: -1, named: 0, actor: a})
+		n := len(t0.Actors)
+		for j, a := range t0.Actors[:n-1] {
+			out = append(out, plan{tok: -1, named: 0, actor: a, proof: n - 1 - j})
 		}
 	}
 	for i, t := range s.tokens {
-		p := plan{tok: i, named: i}
+		p := plan{tok: i, named: i, proof: -1}
 		if t.Problem == "" {
 			p.actor = t.current()
 		}
@@ -64,6 +70,21 @@ func (s *session) rootName() string {
 
 func (s *session) evaluate(at time.Time) *chain.Chain {
 	plans := s.plans()
+	pcs := make([]proofChain, len(s.tokens))
+	for k := range s.tokens {
+		pcs[k] = s.evalProofs(k, at)
+	}
+	// A prior actor is the actor's own word only once its proof holds and
+	// the token carrying it verifies: a token that fails its own validation
+	// is rejected under its own rules, not read for proofs (section 7 step
+	// 1). Anything short of that, unchecked included, leaves it asserted.
+	if s.carrierHolds(plans, pcs, at) {
+		for i := range plans {
+			if p := &plans[i]; p.tok < 0 && pcs[0].covers(p.proof) {
+				p.signed = true
+			}
+		}
+	}
 	c := &chain.Chain{
 		Format: format, Source: s.source, InputFormat: s.inputFormat(), At: at,
 		Reversed: s.reversed, BreakAt: -1,
@@ -72,7 +93,7 @@ func (s *session) evaluate(at time.Time) *chain.Chain {
 
 	from := c.Root.Name
 	for i, p := range plans {
-		l := s.link(i, p, from, at)
+		l := s.link(i, p, from, at, pcs)
 		c.Links = append(c.Links, l)
 		from = linkTo(p)
 	}
@@ -82,8 +103,25 @@ func (s *session) evaluate(at time.Time) *chain.Chain {
 	c.Matrix = s.matrix(plans)
 	s.chainFindings(c)
 	settle(c)
-	s.describe(c, plans, at)
+	s.describe(c, plans, pcs, at)
 	return c
+}
+
+// carrierHolds reports whether token 0, which names every prior actor, has
+// every rule checked and holding on its own link.
+func (s *session) carrierHolds(plans []plan, pcs []proofChain, at time.Time) bool {
+	for i, p := range plans {
+		if p.tok != 0 {
+			continue
+		}
+		for _, ch := range s.link(i, p, "", at, pcs).Checks {
+			if ch.Status != chain.StatusPass && ch.Status != chain.StatusNotApplicable {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 func linkTo(p plan) string {
@@ -115,10 +153,13 @@ func (s *session) root() chain.Root {
 }
 
 // link checks one link.
-func (s *session) link(i int, p plan, from string, at time.Time) chain.Link {
+func (s *session) link(i int, p plan, from string, at time.Time, pcs []proofChain) chain.Link {
 	l := chain.Link{Index: i, From: from, To: linkTo(p), Readable: true}
+	if p.signed {
+		return s.signedLink(l, p, pcs[p.named])
+	}
 	if p.tok < 0 {
-		return s.assertedLink(l, p)
+		return s.assertedLink(l, p, pcs[p.named])
 	}
 	t := s.tokens[p.tok]
 	if t.Problem != "" {
@@ -164,6 +205,10 @@ func (s *session) link(i int, p plan, from string, at time.Time) chain.Link {
 		setr(r)(s.hopRule(r, p.tok))
 	}
 
+	// J11: the actor proofs the token carries, if any.
+	pc := pcs[p.tok]
+	set(RuleProof, pc.Status, pc.Detail)
+
 	for _, r := range format.Rules {
 		l.Checks = append(l.Checks, checks[r.ID])
 	}
@@ -176,6 +221,14 @@ func (s *session) link(i int, p plan, from string, at time.Time) chain.Link {
 		l.Findings = append(l.Findings, chain.Finding{Rule: RuleTime, Link: i, Hop: -1, Severity: chain.SeverityWarn, Detail: warn})
 	}
 	l.Findings = append(l.Findings, actorWarnings(t, i)...)
+	if pc.Status == chain.StatusPass {
+		for _, n := range pc.Notes {
+			l.Findings = append(l.Findings, chain.Finding{Rule: RuleProof, Link: i, Hop: -1, Severity: chain.SeverityInfo, Detail: n})
+		}
+		for _, w := range pc.Warns {
+			l.Findings = append(l.Findings, chain.Finding{Rule: RuleProof, Link: i, Hop: -1, Severity: chain.SeverityWarn, Detail: w})
+		}
+	}
 	if p.tok == len(s.tokens)-1 && t.Problem == "" && !t.hasExplicitActor() && t.Entra == nil {
 		l.Findings = append(l.Findings, chain.Finding{Rule: RuleActor, Link: i, Hop: -1, Severity: chain.SeverityInfo,
 			Detail: fmt.Sprintf("the token names no actor (no act claim): %s %s presents it", t.holder().Role, t.holder().name())})
@@ -189,13 +242,53 @@ func (s *session) link(i int, p plan, from string, at time.Time) chain.Link {
 		l.Remaining = t.Exp.Sub(at)
 	}
 	l.Sections = s.tokenSections(t, p)
+	if pc.Present {
+		if len(pc.Proofs) > 0 {
+			// The newest proof as the chain left it: a proof that verifies
+			// on its own is still not relied on when the chain fails.
+			each := pc.Each[0]
+			if each.Status == chain.StatusPass && pc.Status != chain.StatusPass {
+				each = proofCheck{Status: pc.Status, Detail: each.Detail + "; not relied on: " + pc.Detail}
+			}
+			l.Sections = append(l.Sections, proofSections(pc.Proofs[0], each))
+		}
+		l.Sections = append(l.Sections, proofsSection(pc))
+	}
 	l.Raw = tokenRaw(t)
+	return l
+}
+
+// signedLink is a prior actor whose own proof covers its hop: the actor
+// signed that it took part, for this subject and toward a target. That is
+// its evidence, so the token-level rules, checked on the token's own link,
+// do not apply to it. The proof is all of its standing: when the chain of
+// proofs is only unchecked, so is the link.
+func (s *session) signedLink(l chain.Link, p plan, pc proofChain) chain.Link {
+	each := pc.Each[p.proof]
+	st, detail := each.Status, each.Detail
+	for _, r := range format.Rules {
+		ch := chain.Check{Rule: r.ID, Status: chain.StatusNotApplicable,
+			Detail: fmt.Sprintf("a token rule, checked on token %d's own link; this actor's evidence is its proof", p.named)}
+		switch r.ID {
+		case RuleActor:
+			ch = chain.Check{Rule: r.ID, Status: chain.StatusPass, Detail: "a well-formed actor, and the one its proof names"}
+		case RuleProof:
+			ch = chain.Check{Rule: r.ID, Status: st, Detail: detail}
+		}
+		l.Checks = append(l.Checks, ch)
+	}
+	if f, ok := findingFor(l.Check(RuleProof), l.Index); ok {
+		l.Findings = append(l.Findings, f)
+	}
+	pr := pc.Proofs[p.proof]
+	l.Sections = []chain.Section{actorSection(p.actor), proofSections(pr, proofCheck{Status: st, Detail: detail})}
+	l.Raw = proofRaw(pr)
 	return l
 }
 
 // assertedLink is a prior actor: the issuer's word, so the only rule that
 // says anything about it is whether it is an actor at all.
-func (s *session) assertedLink(l chain.Link, p plan) chain.Link {
+func (s *session) assertedLink(l chain.Link, p plan, pc proofChain) chain.Link {
 	l.Asserted = true
 	for _, r := range format.Rules {
 		ch := chain.Check{Rule: r.ID, Status: chain.StatusNotApplicable,
@@ -214,6 +307,10 @@ func (s *session) assertedLink(l chain.Link, p plan) chain.Link {
 	}
 	l.Findings = append(l.Findings, chain.Finding{Rule: RuleActor, Link: l.Index, Hop: -1, Severity: chain.SeverityInfo,
 		Detail: whyAsserted(p, true)})
+	if pc.Present && p.proof >= 0 && p.proof < len(pc.Proofs) {
+		l.Findings = append(l.Findings, chain.Finding{Rule: RuleProof, Link: l.Index, Hop: -1, Severity: chain.SeverityWarn,
+			Detail: fmt.Sprintf("token %d carries a proof for this actor, but it is not relied on: %s", p.named, whyNotRelied(pc, p))})
+	}
 	if a := p.actor; a.Role == "" && a.Iss == "" && a.Problem == "" {
 		l.Findings = append(l.Findings, chain.Finding{Rule: RuleActor, Link: l.Index, Hop: -1, Severity: chain.SeverityWarn,
 			Detail: "names no iss; the actor profile draft requires one so the actor's identifier means something"})
@@ -528,18 +625,29 @@ func settle(c *chain.Chain) {
 
 // describe writes the sentences: the summary, what was checked against,
 // and what was missing.
-func (s *session) describe(c *chain.Chain, plans []plan, at time.Time) {
-	asserted := 0
+func (s *session) describe(c *chain.Chain, plans []plan, pcs []proofChain, at time.Time) {
+	asserted, signed := 0, 0
 	for _, p := range plans {
-		if p.tok < 0 {
+		switch {
+		case p.signed:
+			signed++
+		case p.tok < 0:
 			asserted++
 		}
+	}
+	proofs, needActorKeys := false, false
+	for _, pc := range pcs {
+		proofs = proofs || pc.Present
+		needActorKeys = needActorKeys || pc.NeedActorKeys
 	}
 	last := s.tokens[len(s.tokens)-1]
 	if s.bundle() {
 		c.Summary = []string{fmt.Sprintf("%d exchanged tokens", len(s.tokens)), "each signed", "checked hop by hop"}
 	} else {
 		c.Summary = []string{"1 token", fmt.Sprintf("%d actor%s", len(plans), plural(len(plans)))}
+		if signed > 0 {
+			c.Summary = append(c.Summary, fmt.Sprintf("%d prior actor%s signed by the actor", signed, plural(signed)))
+		}
 		if asserted > 0 {
 			c.Summary = append(c.Summary, "prior actors asserted")
 		}
@@ -547,9 +655,12 @@ func (s *session) describe(c *chain.Chain, plans []plan, at time.Time) {
 	if s.demo != "" {
 		c.Summary = []string{s.demo}
 	}
-	if c.Verdict == chain.VerdictValid && asserted > 0 {
+	switch {
+	case c.Verdict == chain.VerdictValid && asserted > 0:
 		c.Headline = fmt.Sprintf("The token verifies. Its %d prior actor%s %s the issuer's word, not a verified chain.",
 			asserted, plural(asserted), map[bool]string{true: "is", false: "are"}[asserted == 1])
+	case c.Verdict == chain.VerdictValid && signed > 0:
+		c.Headline = "The token verifies, and every actor in it signed its own hop."
 	}
 
 	var missing []string
@@ -568,6 +679,9 @@ func (s *session) describe(c *chain.Chain, plans []plan, at time.Time) {
 	if needAud {
 		missing = append(missing, "the audience the token is presented to (--audience)")
 	}
+	if needActorKeys {
+		missing = append(missing, "the actors' keys (actors in the --trust file)")
+	}
 	c.Missing = missing
 	if c.Verdict == chain.VerdictIncomplete {
 		var why []string
@@ -577,8 +691,16 @@ func (s *session) describe(c *chain.Chain, plans []plan, at time.Time) {
 		if needAud {
 			why = append(why, "no audience given")
 		}
+		if needActorKeys {
+			why = append(why, "no actor keys given")
+		}
 		for _, l := range c.Links {
 			for _, ch := range l.Checks {
+				// A proof unchecked for want of its actors' keys is named
+				// above; any other cause is said here.
+				if ch.Rule == RuleProof && plans[l.Index].tok >= 0 && pcs[plans[l.Index].tok].NeedActorKeys {
+					continue
+				}
 				if ch.Status == chain.StatusUnchecked && ch.Rule != RuleSignature && ch.Rule != RuleAudience {
 					why = append(why, fmt.Sprintf("%s %s could not be judged", ch.Rule, format.Rule(ch.Rule).Title))
 				}
@@ -588,6 +710,9 @@ func (s *session) describe(c *chain.Chain, plans []plan, at time.Time) {
 	}
 
 	c.CheckedAgainst = s.keys.summary()
+	if proofs {
+		c.CheckedAgainst = append(c.CheckedAgainst, s.actorKeys.summary()...)
+	}
 	if s.audience != nil {
 		c.CheckedAgainst = append(c.CheckedAgainst, chain.KV{Key: "audience", Value: *s.audience})
 	} else {

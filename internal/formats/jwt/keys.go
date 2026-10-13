@@ -61,31 +61,41 @@ type issuerKeys struct {
 // issuer is configuration; it is never read from a token.
 type keyring map[string]*issuerKeys
 
+// actorID names an actor the way the actor proofs draft resolves its keys:
+// by the pair (act.iss, act.sub), never by sub alone (section 11.3).
+type actorID struct{ Iss, Sub string }
+
+// actorKeyring maps actors to the keys they sign actor proofs with. Like
+// keyring it is configuration only, and it is kept apart from it: an
+// actor's keys must come from a source independent of the issuer whose
+// fabrication they are meant to expose (section 11.3).
+type actorKeyring map[actorID]*issuerKeys
+
 // loadKeys reads the key sources named on the command line.
-func loadKeys(ctx context.Context, in chain.Inputs) (keyring, error) {
+func loadKeys(ctx context.Context, in chain.Inputs) (keyring, actorKeyring, error) {
 	var sources []trust.Source
 	if in.TrustFile != "" {
 		s, err := trust.ReadFile(in.TrustFile)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		sources = append(sources, s...)
 	}
 	for _, v := range in.JWKS {
 		s, err := trust.ParseFlag(v)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		sources = append(sources, s)
 	}
 	if len(sources) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	docs, err := trust.Loader{}.LoadDocuments(ctx, sources)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	kr := keyring{}
+	kr, ak := keyring{}, actorKeyring{}
 	for _, d := range docs {
 		ik := &issuerKeys{Source: d.Source, Err: d.Err}
 		if d.Err == "" {
@@ -94,9 +104,19 @@ func loadKeys(ctx context.Context, in chain.Inputs) (keyring, error) {
 				ik.Err = err.Error()
 			}
 		}
+		if d.Actor != "" {
+			ak[actorID{Iss: d.Issuer, Sub: d.Actor}] = ik
+			continue
+		}
 		kr[d.Issuer] = ik
 	}
-	return kr, nil
+	if len(kr) == 0 {
+		kr = nil
+	}
+	if len(ak) == 0 {
+		ak = nil
+	}
+	return kr, ak, nil
 }
 
 // parseJWKS reads a JWK Set (RFC 7517 section 5) and keeps the keys that can
@@ -191,26 +211,32 @@ func (kr keyring) verifySig(t *token) sigResult {
 	if ik.Err != "" {
 		return sigResult{Status: chain.StatusError, Detail: "keys for this issuer could not be used: " + ik.Err}
 	}
+	return verifyWith(ik, t.Raw, t.Alg, t.Kid, "the issuer")
+}
+
+// verifyWith checks a compact JWS against one configured key document. who
+// names the signer in the report ("the issuer", "the actor").
+func verifyWith(ik *issuerKeys, raw, alg, kid, who string) sigResult {
 	var candidates []jose.JSONWebKey
 	for _, k := range ik.Keys {
-		if t.Kid != "" && k.KeyID != t.Kid {
+		if kid != "" && k.KeyID != kid {
 			continue
 		}
-		if k.Algorithm != "" && k.Algorithm != t.Alg {
+		if k.Algorithm != "" && k.Algorithm != alg {
 			continue
 		}
 		candidates = append(candidates, k)
 	}
 	switch {
-	case len(candidates) == 0 && t.Kid != "":
-		return sigResult{Status: chain.StatusFail, Detail: fmt.Sprintf("the issuer publishes no %s key with kid %q", t.Alg, t.Kid)}
+	case len(candidates) == 0 && kid != "":
+		return sigResult{Status: chain.StatusFail, Detail: fmt.Sprintf("%s publishes no %s key with kid %q", who, alg, kid)}
 	case len(candidates) == 0:
-		return sigResult{Status: chain.StatusFail, Detail: fmt.Sprintf("the issuer publishes no key for alg %s", t.Alg)}
-	case len(candidates) > 1 && t.Kid == "":
-		return sigResult{Status: chain.StatusFail, Detail: "the token names no kid and the issuer publishes several keys; a verifier could not tell which is meant"}
+		return sigResult{Status: chain.StatusFail, Detail: fmt.Sprintf("%s publishes no key for alg %s", who, alg)}
+	case len(candidates) > 1 && kid == "":
+		return sigResult{Status: chain.StatusFail, Detail: fmt.Sprintf("no kid, and %s publishes several keys; a verifier could not tell which is meant", who)}
 	}
 	key := candidates[0]
-	jws, err := jose.ParseSigned(t.Raw, algorithms)
+	jws, err := jose.ParseSigned(raw, algorithms)
 	if err != nil {
 		return sigResult{Status: chain.StatusFail, Detail: "the signature cannot be read: " + err.Error()}
 	}
@@ -274,6 +300,38 @@ func (kr keyring) summary() []chain.KV {
 			if len(kids) > 0 {
 				v += "  " + strings.Join(kids, ", ")
 			}
+		}
+		out = append(out, chain.KV{Key: key, Value: v, Tone: tone})
+	}
+	return out
+}
+
+// summary lists the configured actors for the report.
+func (ak actorKeyring) summary() []chain.KV {
+	if len(ak) == 0 {
+		return []chain.KV{{Key: "actor keys", Value: "none given: actor proofs were not checked", Tone: chain.ToneWarn}}
+	}
+	ids := make([]actorID, 0, len(ak))
+	for id := range ak {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		if ids[i].Iss != ids[j].Iss {
+			return ids[i].Iss < ids[j].Iss
+		}
+		return ids[i].Sub < ids[j].Sub
+	})
+	var out []chain.KV
+	for i, id := range ids {
+		key := ""
+		if i == 0 {
+			key = "actor keys"
+		}
+		ik := ak[id]
+		v, tone := id.Sub+" of "+id.Iss+"  "+ik.Source, chain.ToneText
+		if ik.Err != "" {
+			v += "  (unusable: " + ik.Err + ")"
+			tone = chain.ToneBad
 		}
 		out = append(out, chain.KV{Key: key, Value: v, Tone: tone})
 	}

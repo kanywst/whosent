@@ -42,6 +42,7 @@ const (
 	RuleScope     = "J8"
 	RuleSubject   = "J9"
 	RuleExpiry    = "J10"
+	RuleProof     = "J11"
 )
 
 // bundleRule marks the rules that compare one token of a bundle with the
@@ -64,6 +65,7 @@ var format = chain.Format{
 		{ID: RuleScope, Title: "scope", Spec: bundleRule + " (section 4.2, scope)"},
 		{ID: RuleSubject, Title: "subject", Spec: bundleRule + " (section 4.1, sub)"},
 		{ID: RuleExpiry, Title: "expiry", Spec: bundleRule + " (RFC 7519 section 4.1.4, exp)"},
+		{ID: RuleProof, Title: "actor proof", Spec: specProofs + " section 7; whosent fails the token on a rejected chain, where the draft only drops the evidence"},
 	},
 }
 
@@ -121,11 +123,12 @@ func (Adapter) Open(ctx context.Context, in chain.Inputs) (chain.Session, error)
 			raws[i], raws[j] = raws[j], raws[i]
 		}
 	}
-	keys, err := loadKeys(ctx, in)
+	keys, actorKeys, err := loadKeys(ctx, in)
 	if err != nil {
 		return nil, err
 	}
 	s := newSession(raws, keys, in.Audience, in.Skew)
+	s.actorKeys = actorKeys
 	s.source = in.Source
 	s.at = in.At
 	s.reversed = in.Reverse
@@ -143,13 +146,15 @@ func (Adapter) Scenarios() []chain.Scenario { return scenarios() }
 
 // session is one token or bundle with the inputs it is checked against.
 type session struct {
-	tokens   []*token
-	keys     keyring
-	audience *string
-	skew     time.Duration
-	at       time.Time
-	source   string
-	reversed bool
+	tokens []*token
+	keys   keyring
+	// actorKeys are the keys actors sign actor proofs with.
+	actorKeys actorKeyring
+	audience  *string
+	skew      time.Duration
+	at        time.Time
+	source    string
+	reversed  bool
 	// demo is set for a scenario: its summary replaces the input line.
 	demo string
 	// ignored are the inputs given that a JWT has no use for.

@@ -15,7 +15,14 @@ func (s *session) hop(plans []plan, a, b int) chain.Hop {
 		// Inside one token: the issuer says this actor acted for the one
 		// before. Nothing about it can be compared.
 		h.Changes = []chain.Change{{Kind: chain.ChangeInfo, Text: fmt.Sprintf("acts for %s, as the issuer states", linkTo(pa))}}
-		if pb.tok >= 0 && pb.tok == pa.named {
+		switch {
+		case pb.signed && pa.signed:
+			// The older proof omits prh only when it is the oldest, so a
+			// signed link after a signed one is hash-linked to it.
+			h.Changes[0].Text = fmt.Sprintf("acts for %s; its proof is hash-linked to %s's", linkTo(pa), linkTo(pa))
+		case pb.signed:
+			h.Changes[0].Text = fmt.Sprintf("acts for %s, as the issuer states; it signed its own hop", linkTo(pa))
+		case pb.tok >= 0 && pb.tok == pa.named:
 			h.Changes[0].Text = fmt.Sprintf("acts for %s; this token makes it the current actor", linkTo(pa))
 		}
 		return h
