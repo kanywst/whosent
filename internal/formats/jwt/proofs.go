@@ -372,6 +372,18 @@ func (s *session) evalProofs(k int, at time.Time) proofChain {
 	if newest.Sub != t.Sub {
 		return fail(fmt.Sprintf("the newest proof was signed for subject %q, but the token's is %q", newest.Sub, t.Sub))
 	}
+	// The namespace of that subject is compared only against one the token
+	// itself states: its iss is not one, since the draft's own example has
+	// a token issued by one authorization server for a subject another
+	// names.
+	if newest.SubIss != "" {
+		switch tokSubIss, ok := t.Claims["sub_iss"].(string); {
+		case ok && tokSubIss != newest.SubIss:
+			return fail(fmt.Sprintf("the newest proof's subject is %q under %q, but the token puts it under %q (sub_iss)", newest.Sub, newest.SubIss, tokSubIss))
+		case !ok:
+			pc.Notes = append(pc.Notes, fmt.Sprintf("the newest proof names %q as the subject's namespace (sub_iss), and the token states none to compare it with", newest.SubIss))
+		}
+	}
 	for i, p := range pc.Proofs {
 		if !pc.sameSubject(i) {
 			pc.Warns = append(pc.Warns, fmt.Sprintf("proof %d was signed for subject %q, not %q: whether that is the same party is not checked, so it does not stand for its actor (section 7.1)", i, p.Sub, newest.Sub))

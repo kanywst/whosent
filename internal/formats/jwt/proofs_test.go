@@ -153,6 +153,17 @@ func TestActorProofs(t *testing.T) {
 			pc.token["resource"] = "https://api.acme.example/admin"
 		}, allKeys, chain.StatusFail, "resource", false},
 		{"a proof bound to another token", func(pc *proofCase) { pc.newer["origin_jti"] = "at-2" }, allKeys, chain.StatusFail, "origin_jti", false},
+		{"a proof for the subject under another namespace", func(pc *proofCase) {
+			pc.newer["sub_iss"] = "https://other-idp.example"
+			pc.token["sub_iss"] = demoOkta
+		}, allKeys, chain.StatusFail, "sub_iss", false},
+		{"a proof whose namespace matches the token's", func(pc *proofCase) {
+			pc.newer["sub_iss"], pc.older["sub_iss"] = demoOkta, demoOkta
+			pc.token["sub_iss"] = demoOkta
+		}, allKeys, chain.StatusPass, "", true},
+		{"a proof naming a namespace the token does not state", func(pc *proofCase) {
+			pc.newer["sub_iss"], pc.older["sub_iss"] = "https://idp.example", "https://idp.example"
+		}, allKeys, chain.StatusPass, "", true},
 		{"a proof for another subject", func(pc *proofCase) { pc.newer["sub"] = "bob@acme.example" }, allKeys, chain.StatusFail, "subject", false},
 		{"a proof carrying aud", func(pc *proofCase) { pc.newer["aud"] = demoAPI }, allKeys, chain.StatusFail, "carries aud", false},
 		{"a proof whose iss is not its actor", func(pc *proofCase) { pc.newer["iss"] = "someone-else" }, allKeys, chain.StatusFail, "signs as itself", false},
