@@ -307,6 +307,15 @@ func TestBundleProofsArePreserved(t *testing.T) {
 		t.Fatalf("%s: %v", c.Verdict, c.Findings())
 	}
 
+	// A token that starts its own chain drops the inherited one: allowed
+	// when that chain failed, so it is noted, not failed.
+	fresh := proofClaims(keyResearch, demoAPI)
+	t1alone := tok(1, act("research-agent", "ai_agent", act("planner-agent", "ai_agent", nil)), []string{mint(keyResearch, typActorProof, fresh)}, demoAPI)
+	c = evalProofs([]string{t0, t1alone}, allKeys...)
+	if got := c.Links[1].Check(RuleProof); got.Status != chain.StatusPass || !strings.Contains(fmtFindings(c.Links[1].Findings), "inherited chain was dropped") {
+		t.Errorf("dropped chain: %s %q %v", got.Status, got.Detail, c.Links[1].Findings)
+	}
+
 	other := mint(keyPlanner, typActorProof, map[string]any{
 		"iss": "planner-agent", "sub": demoUser, "act": map[string]any{"sub": "planner-agent", "iss": demoOkta, "sub_profile": "ai_agent"},
 		"target": map[string]any{"aud": []any{demoOkta}}, "iat": unix(base.Add(-9 * time.Minute)), "exp": unix(base.Add(time.Hour)), "jti": "proof-planner-2",

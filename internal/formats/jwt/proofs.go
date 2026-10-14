@@ -422,9 +422,19 @@ func (s *session) evalProofs(k int, at time.Time) proofChain {
 	}
 
 	// Section 6.2: an exchange keeps the proofs it inherits byte for byte.
-	if k > 0 && len(raws) > 1 {
-		if prev, ok := s.tokens[k-1].Claims["actor_proofs"].([]any); ok && !sameStrings(raws[1:], prev) {
+	// Starting a new chain instead is allowed only when the inherited one
+	// failed validation, which whosent cannot see from here, so a dropped
+	// chain is said rather than failed.
+	var prev []any
+	if k > 0 {
+		prev, _ = s.tokens[k-1].Claims["actor_proofs"].([]any)
+	}
+	if len(prev) > 0 {
+		switch {
+		case len(raws) > 1 && !sameStrings(raws[1:], prev):
 			return fail(fmt.Sprintf("the proofs after the newest are not token %d's actor_proofs byte for byte (section 6.2)", k-1))
+		case len(raws) == 1:
+			pc.Notes = append(pc.Notes, fmt.Sprintf("token %d carried %d actor proof%s and this token carries only its own: the inherited chain was dropped, which the draft allows only when it failed validation (section 6.2)", k-1, len(prev), plural(len(prev))))
 		}
 	}
 
