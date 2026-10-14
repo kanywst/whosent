@@ -20,6 +20,16 @@ Given the tokens of successive exchanges, oldest first (a JSON array of compact 
 
 Rules J7 to J10, and the exchange half of J6, are whosent's consistency checks derived from RFC 8693 and the drafts built on it. No specification defines them as a verification procedure, and a deployment may have reasons to differ.
 
+### Actor proofs
+
+[draft-mcguinness-oauth-actor-proofs](https://datatracker.ietf.org/doc/draft-mcguinness-oauth-actor-proofs/) (revision 01, an individual draft) adds `actor_proofs` to a token: one compact JWT per covered hop, newest first, each signed by the actor that hop added and linked to the one before it by `prh`, the hash of its exact bytes. It is the first thing in a single token that can verify a prior actor at all.
+
+Rule J11 applies the draft's consumer processing (section 7): the proof's form and `typ: actor-proof+jwt`, an asymmetric `alg`, no `aud`, a single-hop `act` whose `iss` and `sub` match the actor at that hop, the signature against the actor's keys, `iat` and `exp`, one `prh_alg` for the whole chain (SHA-256, SHA-384 or SHA-512), `actor_proofs_complete`, the newest proof's `sub` against the token's, and the token's audience and `resource` within the newest proof's `target`. A token that has grown past its newest proof's target, or whose `jti` is not the proof's `origin_jti`, is rejected: whosent has no trusted reissuing issuers, so it is in the draft's strict mode. Within a bundle, a token's inherited proofs must be the previous token's byte for byte (section 6.2).
+
+An actor's keys are looked up by (`act.iss`, `act.sub`) under `actors` in the trust file, never from the proof. A prior actor is drawn as the actor's own word only when every proof of the chain holds, its proof was signed for the same subject as the newest (section 7.1), and every rule of the token carrying it was checked and holds. Anything short of that, unchecked included, leaves it asserted. A rejected chain breaks the token's own link at J11: that is whosent's choice, since the draft only drops the evidence and leaves rejecting the token to local policy. A valid proof shows that the actor took part and consented to the target. It does not show an authorization server checked the hop, and the draft's receipts companion, which would, is not read.
+
+`whosent demo jwt-actor-proofs` and `jwt-actor-proofs-forged` show both.
+
 JWTs have no standard revocation identifier, so there is no revocation simulation. `a` asks whether the last token holds a scope at an audience.
 
 ### Getting tokens

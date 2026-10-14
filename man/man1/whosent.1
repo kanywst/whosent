@@ -31,8 +31,10 @@ Txn-Tokens (\fBtyp: txntoken+jwt\fR) and Microsoft Entra agent tokens. One
 token's prior actors are the issuer's word (RFC 8693 section 4.1) and are drawn
 as
 .IR asserted ,
-never as verified. Several tokens from successive exchanges, oldest first, are
-checked hop by hop; those hop rules (J7 to J10) are whosent's own consistency
+never as verified, unless the token carries actor proofs
+(draft-mcguinness-oauth-actor-proofs) that every covered actor signed and the
+trust file names the actors' keys for. Several tokens from successive
+exchanges, oldest first, are checked hop by hop; those hop rules (J7 to J10) are whosent's own consistency
 checks, not a procedure any specification defines.
 .TP
 .B biscuit
@@ -160,6 +162,9 @@ could claim is refused rather than guessed at.
 .BI \-\-trust " FILE"
 A trust file mapping issuers to their key documents:
 .B {"issuers": {"ISSUER": {"jwks_file": "PATH"} | {"jwks_url": "https://..."}}}.
+An optional \fBactors\fR list names the keys actors sign actor proofs with:
+.B "actors": [{"iss": "ACT_ISS", "sub": "ACT_SUB", "jwks_file": "PATH"}].
+An actor is named by the pair, never by \fBsub\fR alone.
 A relative \fBjwks_file\fR is resolved against the trust file's directory.
 .TP
 .BI \-\-jwks " ISSUER=PATH|ISSUER=https://URL"
@@ -287,6 +292,13 @@ Subject: the subject does not change across an exchange.
 .TP
 .B J10
 Expiry: an exchanged token expires no later than the token it replaced.
+.TP
+.B J11
+Actor proof: the token's \fBactor_proofs\fR (draft-mcguinness-oauth-actor-proofs
+section 7). Each proof is signed by its actor's own key, hash-linked by
+\fBprh\fR, aligned with the \fBact\fR chain and unexpired, and the token stays
+within the newest actor's consented \fBtarget\fR. A rejected chain fails
+the token; the draft itself only drops the evidence.
 .PP
 J7 to J10 are whosent's consistency checks, derived from RFC 8693; no
 specification defines them as a verification procedure.

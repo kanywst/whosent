@@ -33,6 +33,8 @@ type demoKey struct {
 	iss string
 	kid string
 	key ed25519.PrivateKey
+	// sub is set for an actor's key: the actor is (iss, sub).
+	sub string
 }
 
 func newDemoKey(iss, kid, seed string) demoKey {
@@ -40,11 +42,40 @@ func newDemoKey(iss, kid, seed string) demoKey {
 	return demoKey{iss: iss, kid: kid, key: ed25519.NewKeyFromSeed(s[:])}
 }
 
+// newActorKey is the key an actor signs its actor proofs with.
+func newActorKey(sub, seed string) demoKey {
+	k := newDemoKey(demoOkta, sub+"-2026", seed)
+	k.sub = sub
+	return k
+}
+
 var (
 	keyOkta     = newDemoKey(demoOkta, "okta-2026", "okta")
 	keyEntra    = newDemoKey(demoEntra, "entra-2026", "entra")
 	keyAttacker = newDemoKey(demoOkta, "okta-2026", "mallory")
+	keyPlanner  = newActorKey("planner-agent", "planner")
+	keyResearch = newActorKey("research-agent", "research")
+	// keyForger claims the planner's kid; the planner never held it.
+	keyForger = newActorKey("planner-agent", "forger")
 )
+
+// actorProof is the proof an actor signs when it is added as the token's
+// newest actor (draft-mcguinness-oauth-actor-proofs-01 section 4), linked by
+// prh to the proof before it, if any.
+func actorProof(k demoKey, base time.Time, signed time.Duration, aud string, older string, extra map[string]any) string {
+	claims := map[string]any{
+		"iss": k.sub, "sub": demoUser, "act": map[string]any{"sub": k.sub, "iss": k.iss, "sub_profile": "ai_agent"},
+		"target": map[string]any{"aud": []string{aud}},
+		"iat":    unix(base.Add(signed)), "exp": unix(base.Add(time.Hour)), "jti": "proof-" + k.sub,
+	}
+	if older != "" {
+		claims["prh"] = prhOf("sha-256", older)
+	}
+	for name, v := range extra {
+		claims[name] = v
+	}
+	return mint(k, typActorProof, claims)
+}
 
 // jwks is the published key document for a demo key.
 func (k demoKey) jwks() []byte {
@@ -96,6 +127,7 @@ func act(sub, profile string, inner map[string]any) map[string]any {
 type demo struct {
 	tokens   []string
 	keys     []demoKey
+	actors   []demoKey
 	audience string
 }
 
@@ -146,6 +178,19 @@ func scenarioDefs() []scenarioDef {
 			d.tokens = append(d.tokens, mint(keyOkta, "at+jwt", c))
 		}
 		return d
+	}
+	proofs := func(base time.Time, planner demoKey) demo {
+		older := actorProof(planner, base, -20*time.Minute, demoOkta, "", nil)
+		newer := actorProof(keyResearch, base, -10*time.Minute, demoAPI, older, map[string]any{"origin_jti": "at-91c2"})
+		claims := map[string]any{
+			"iss": demoOkta, "sub": demoUser, "sub_profile": "user", "aud": demoAPI,
+			"iat": unix(base.Add(-2 * time.Minute)), "exp": unix(base.Add(30 * time.Minute)), "jti": "at-91c2",
+			"scope":        "files:read",
+			"act":          act("research-agent", "ai_agent", act("planner-agent", "ai_agent", nil)),
+			"actor_proofs": []string{newer, older}, "actor_proofs_complete": true,
+		}
+		return demo{tokens: []string{mint(keyOkta, "at+jwt", claims)}, keys: []demoKey{keyOkta},
+			actors: []demoKey{keyPlanner, keyResearch}, audience: demoAPI}
 	}
 	return []scenarioDef{
 		{"jwt-okta-style", "One token, three actors",
@@ -221,6 +266,12 @@ func scenarioDefs() []scenarioDef {
 				}
 				return demo{tokens: []string{mint(keyOkta, typIDJAG, claims)}, keys: []demoKey{keyOkta}, audience: demoSaaSAS}
 			}},
+		{"jwt-actor-proofs", "Every actor signed its hop",
+			"the planner and the research agent each signed an actor proof for alice, hash-linked newest to oldest: the prior actor is the actor's own word, not only the issuer's.",
+			func(base time.Time) demo { return proofs(base, keyPlanner) }},
+		{"jwt-actor-proofs-forged", "A proof the planner never signed",
+			"the token names the planner and carries a proof for it, but another key signed that proof: the planner's part in the chain is the issuer's say-so.",
+			func(base time.Time) demo { return proofs(base, keyForger) }},
 		{"jwt-unchecked", "Nothing to check against",
 			"the Okta-style token with no keys and no audience: nothing fails, and nothing is verified.",
 			func(base time.Time) demo {
@@ -262,6 +313,14 @@ func openDemo(def scenarioDef, base time.Time) *session {
 		aud = &a
 	}
 	s := newSession(d.tokens, kr, aud, nil)
+	for _, k := range d.actors {
+		if s.actorKeys == nil {
+			s.actorKeys = actorKeyring{}
+		}
+		var set jose.JSONWebKeySet
+		_ = json.Unmarshal(k.jwks(), &set)
+		s.actorKeys[actorID{Iss: k.iss, Sub: k.sub}] = &issuerKeys{Source: "actor-" + k.sub + ".json", Keys: set.Keys}
+	}
 	s.at = base.Add(time.Minute)
 	s.source = def.name
 	s.demo = def.summary
@@ -314,7 +373,19 @@ func emitDemo(def scenarioDef, dir string, force bool) (string, error) {
 			}
 			issuers[k.iss] = map[string]string{"jwks_file": filepath.Join("jwks", file)}
 		}
-		b, err := json.MarshalIndent(map[string]any{"issuers": issuers}, "", "  ")
+		var actors []map[string]string
+		for _, k := range d.actors {
+			file := "actor-" + k.sub + ".json"
+			if err := safewrite.File(filepath.Join(jwksDir, file), k.jwks()); err != nil {
+				return "", err
+			}
+			actors = append(actors, map[string]string{"iss": k.iss, "sub": k.sub, "jwks_file": filepath.Join("jwks", file)})
+		}
+		doc := map[string]any{"issuers": issuers}
+		if len(actors) > 0 {
+			doc["actors"] = actors
+		}
+		b, err := json.MarshalIndent(doc, "", "  ")
 		if err != nil {
 			return "", err
 		}

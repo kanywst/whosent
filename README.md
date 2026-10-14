@@ -46,7 +46,7 @@ The format is recognised from the input; `--format` picks one when it is ambiguo
 
 ### JWT token exchange
 
-One token with nested `act` claims, or a bundle of exchanged tokens, oldest first. Also ID-JAG, Txn-Tokens and Entra agent tokens. Prior actors in one token are the issuer's word (RFC 8693 section 4.1), so they are drawn as asserted, not verified. J7 to J10 are whosent's own checks between exchanges, not a standard procedure.
+One token with nested `act` claims, or a bundle of exchanged tokens, oldest first. Also ID-JAG, Txn-Tokens and Entra agent tokens. Prior actors in one token are the issuer's word (RFC 8693 section 4.1), so they are drawn as asserted, not verified, unless the token carries actor proofs (draft-mcguinness-oauth-actor-proofs): then each covered actor signed its own hop, and with its keys in the trust file it is drawn as the actor's own word. J7 to J10 are whosent's own checks between exchanges, not a standard procedure.
 
 | Rule | Checks |
 | :--: | :--- |
@@ -60,6 +60,7 @@ One token with nested `act` claims, or a bundle of exchanged tokens, oldest firs
 | J8 | an exchanged token's scope is a subset of the previous token's |
 | J9 | the subject does not change across an exchange |
 | J10 | an exchanged token expires no later than the token it replaced |
+| J11 | the token's `actor_proofs`: each proof signed by its actor's own key, hash-linked by `prh`, aligned with the `act` chain, unexpired, and the token within the newest actor's consented `target`. A rejected chain fails the token; the draft itself only drops the evidence |
 
 ### Biscuit
 
@@ -123,10 +124,10 @@ whosent check tokens.json --trust trust.json --audience https://api.acme.example
 
 ❌ INVALID: the chain breaks at link 2, and no authority reaches below it
 
-  #  issuer → subject                   J1 J2 J3 J4 J5 J6 J7 J8 J9 J10
-  0  alice@acme.example → chat-ui        ✓  ✓  ✓  ·  ✓  ·  ·  ·  ·   ·
-  1  chat-ui → planner-agent             ✓  ✓  ✓  ·  ✓  ✓  ✓  ✓  ✓   ✓
-  2  planner-agent → research-agent      ✓  ✓  ✓  ✓  ✓  ✓  ✓  ✗  ✓   ✓
+  #  issuer → subject                   J1 J2 J3 J4 J5 J6 J7 J8 J9 J10 J11
+  0  alice@acme.example → chat-ui        ✓  ✓  ✓  ·  ✓  ·  ·  ·  ·   ·   ·
+  1  chat-ui → planner-agent             ✓  ✓  ✓  ·  ✓  ✓  ✓  ✓  ✓   ✓   ·
+  2  planner-agent → research-agent      ✓  ✓  ✓  ✓  ✓  ✓  ✓  ✗  ✓   ✓   ·
      ✓ pass  ✗ fail  ! could not evaluate  ? not checked  - skipped  · does not apply
 
 Findings
@@ -176,7 +177,7 @@ How authority narrows
 | Flag | For | What it supplies |
 | :--- | :--- | :--- |
 | `--jwks ISSUER=PATH` or `ISSUER=https://URL` | JWT | an issuer's key document; repeatable |
-| `--trust FILE` | JWT | a file mapping issuers to key documents (below) |
+| `--trust FILE` | JWT | a file mapping issuers, and actors that sign actor proofs, to key documents (below) |
 | `--root-key KEY` | Biscuit, Macaroon | Biscuit: a root public key (`ed25519/...`, `secp256r1/...`, or a file). Macaroon: the root key (hex, `text:SECRET`, or a file) |
 | `--audience AUD` | JWT | the party the chain is presented to |
 | `--fact FACT`, `--authorizer FILE` | Biscuit, Macaroon | authorizer facts and policies; for a macaroon, a satisfied predicate |
@@ -191,8 +192,13 @@ The trust file:
 {"issuers": {
   "https://idp.example.com": {"jwks_file": "jwks/idp.json"},
   "https://login.example.org": {"jwks_url": "https://login.example.org/.well-known/jwks.json"}
-}}
+},
+ "actors": [
+  {"iss": "https://idp.example.com", "sub": "planner-agent", "jwks_file": "jwks/planner.json"}
+]}
 ```
+
+`actors` is optional. An actor is named by the pair (`act.iss`, `act.sub`), and its keys are the ones it signs actor proofs with; they must come from somewhere other than the issuer, or the proofs cannot expose an issuer that invents an actor.
 
 ## Keybindings
 

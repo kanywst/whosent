@@ -116,6 +116,8 @@ func TestDump(t *testing.T) {
 		{"jwt-healthy", "jwt-bundle-healthy", nil},
 		{"jwt-widened", "jwt-bundle-widened", nil},
 		{"jwt-unchecked", "jwt-unchecked", nil},
+		{"jwt-proofs", "jwt-actor-proofs", []string{"left"}},
+		{"jwt-proofs-forged", "jwt-actor-proofs-forged", nil},
 		{"biscuit-denied", "biscuit-denied", nil},
 		{"ucan-healthy", "ucan-healthy", nil},
 		{"ucan-revoked", "ucan-revoked", nil},

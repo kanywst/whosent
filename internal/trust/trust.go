@@ -25,10 +25,22 @@ const (
 )
 
 // Source names where one issuer's keys come from: a local file or an https
-// URL.
+// URL. Actor is set for an actor's own keys, the ones it signs actor proofs
+// with: an actor is named by the pair (act.iss, act.sub), so Issuer then
+// holds act.iss and Actor act.sub. A bare act.sub would let one namespace's
+// "planner" stand for another's.
 type Source struct {
 	Issuer   string
 	Location string
+	Actor    string
+}
+
+// Label names the source in messages: the issuer, or the actor within it.
+func (s Source) Label() string {
+	if s.Actor == "" {
+		return fmt.Sprintf("%q", s.Issuer)
+	}
+	return fmt.Sprintf("actor %q of %q", s.Actor, s.Issuer)
 }
 
 // IsURL reports whether the source is fetched rather than read.
@@ -52,16 +64,29 @@ func ParseFlag(v string) (Source, error) {
 //	{"issuers": {
 //	   "https://idp.example.org": {"jwks_file": "jwks/idp.json"},
 //	   "spiffe://example.org/ns/agents/planner": {"jwks_url": "https://..."}
-//	}}
+//	 },
+//	 "actors": [
+//	   {"iss": "https://idp.example.org", "sub": "planner-agent", "jwks_file": "jwks/planner.json"}
+//	 ]}
 //
 // A relative jwks_file is resolved against the trust file's directory, so a
-// fixture directory can be moved as a whole.
+// fixture directory can be moved as a whole. Actors are a list rather than a
+// map because an actor is named by two strings, not one.
 type File struct {
 	Issuers map[string]FileIssuer `json:"issuers"`
+	Actors  []FileActor           `json:"actors"`
 }
 
 // FileIssuer is one issuer's entry in a trust file.
 type FileIssuer struct {
+	JWKSFile string `json:"jwks_file,omitempty"`
+	JWKSURL  string `json:"jwks_url,omitempty"`
+}
+
+// FileActor is one actor's entry: the keys it signs actor proofs with.
+type FileActor struct {
+	Iss      string `json:"iss"`
+	Sub      string `json:"sub"`
 	JWKSFile string `json:"jwks_file,omitempty"`
 	JWKSURL  string `json:"jwks_url,omitempty"`
 }
@@ -86,22 +111,41 @@ func ReadFile(path string) ([]Source, error) {
 	var out []Source
 	for _, iss := range issuers {
 		e := f.Issuers[iss]
-		switch {
-		case e.JWKSFile != "" && e.JWKSURL != "":
-			return nil, fmt.Errorf("trust file %s: issuer %q names both jwks_file and jwks_url; give one", path, iss)
-		case e.JWKSFile != "":
-			loc := e.JWKSFile
-			if !filepath.IsAbs(loc) {
-				loc = filepath.Join(filepath.Dir(path), loc)
-			}
-			out = append(out, Source{Issuer: iss, Location: loc})
-		case e.JWKSURL != "":
-			out = append(out, Source{Issuer: iss, Location: e.JWKSURL})
-		default:
-			return nil, fmt.Errorf("trust file %s: issuer %q names neither jwks_file nor jwks_url", path, iss)
+		src, err := source(path, fmt.Sprintf("issuer %q", iss), e.JWKSFile, e.JWKSURL)
+		if err != nil {
+			return nil, err
 		}
+		src.Issuer = iss
+		out = append(out, src)
+	}
+	for i, a := range f.Actors {
+		if a.Iss == "" || a.Sub == "" {
+			return nil, fmt.Errorf("trust file %s: actor %d needs both iss and sub; an actor is named by the pair", path, i)
+		}
+		src, err := source(path, fmt.Sprintf("actor %q of %q", a.Sub, a.Iss), a.JWKSFile, a.JWKSURL)
+		if err != nil {
+			return nil, err
+		}
+		src.Issuer, src.Actor = a.Iss, a.Sub
+		out = append(out, src)
 	}
 	return out, nil
+}
+
+// source reads one entry's key location, file or URL.
+func source(path, who, file, url string) (Source, error) {
+	switch {
+	case file != "" && url != "":
+		return Source{}, fmt.Errorf("trust file %s: %s names both jwks_file and jwks_url; give one", path, who)
+	case file != "":
+		if !filepath.IsAbs(file) {
+			file = filepath.Join(filepath.Dir(path), file)
+		}
+		return Source{Location: file}, nil
+	case url != "":
+		return Source{Location: url}, nil
+	}
+	return Source{}, fmt.Errorf("trust file %s: %s names neither jwks_file nor jwks_url", path, who)
 }
 
 // Loader fetches and reads key documents.
@@ -117,6 +161,8 @@ type Loader struct {
 // so the report shows it against the issuer rather than refusing to start.
 type Document struct {
 	Issuer string
+	// Actor is the source's Actor: set for an actor's keys.
+	Actor string
 	// Source is what the report names the document by: the file's base
 	// name, or the URL.
 	Source string
@@ -129,19 +175,20 @@ type Document struct {
 // read is an error, since it is almost always a typo; a URL that cannot be
 // fetched is recorded against the issuer.
 func (l Loader) LoadDocuments(ctx context.Context, sources []Source) ([]Document, error) {
-	seen := map[string]bool{}
+	seen := map[Source]bool{}
 	out := make([]Document, 0, len(sources))
 	for _, s := range sources {
-		if seen[s.Issuer] {
-			return nil, fmt.Errorf("keys for %q are configured twice; give each issuer one source", s.Issuer)
+		k := Source{Issuer: s.Issuer, Actor: s.Actor}
+		if seen[k] {
+			return nil, fmt.Errorf("keys for %s are configured twice; give each one source", s.Label())
 		}
-		seen[s.Issuer] = true
+		seen[k] = true
 		if strings.HasPrefix(s.Location, "http://") {
 			// Refused as configuration, the way the library's AddSource
 			// refuses it, rather than recorded as a key that failed to load.
-			return nil, fmt.Errorf("keys for %q: %s is plaintext; key sources must be https", s.Issuer, s.Location)
+			return nil, fmt.Errorf("keys for %s: %s is plaintext; key sources must be https", s.Label(), s.Location)
 		}
-		d := Document{Issuer: s.Issuer, Source: s.Location}
+		d := Document{Issuer: s.Issuer, Actor: s.Actor, Source: s.Location}
 		if s.IsURL() {
 			data, err := l.fetch(ctx, s.Location)
 			if err != nil {
@@ -152,7 +199,7 @@ func (l Loader) LoadDocuments(ctx context.Context, sources []Source) ([]Document
 			d.Source = filepath.Base(s.Location)
 			data, err := os.ReadFile(s.Location)
 			if err != nil {
-				return nil, fmt.Errorf("reading keys for %q: %w", s.Issuer, err)
+				return nil, fmt.Errorf("reading keys for %s: %w", s.Label(), err)
 			}
 			d.Data = data
 		}
