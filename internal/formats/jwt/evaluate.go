@@ -700,7 +700,7 @@ func (s *session) describe(c *chain.Chain, plans []plan, pcs []proofChain, at ti
 			for _, ch := range l.Checks {
 				// A proof unchecked for want of its actors' keys is named
 				// above; any other cause is said here.
-				if ch.Rule == RuleProof && plans[l.Index].tok >= 0 && pcs[plans[l.Index].tok].NeedActorKeys {
+				if p := plans[l.Index]; ch.Rule == RuleProof && p.tok >= 0 && pcs[p.tok].NeedActorKeys && pcs[p.tok].OnlyKeys {
 					continue
 				}
 				if ch.Status == chain.StatusUnchecked && ch.Rule != RuleSignature && ch.Rule != RuleAudience {

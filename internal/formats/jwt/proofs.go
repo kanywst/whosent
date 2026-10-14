@@ -220,8 +220,10 @@ func prhOf(alg, raw string) string {
 type proofCheck struct {
 	Status chain.Status
 	Detail string
-	// NeedKeys is set when the actor's keys were not given.
-	NeedKeys bool
+	// NeedKeys is set when the actor's keys were not given, and
+	// TimeUnknown when the moment to judge the proof at is.
+	NeedKeys    bool
+	TimeUnknown bool
 }
 
 // proofChain is the result of section 7 for one token.
@@ -238,8 +240,9 @@ type proofChain struct {
 	Notes []string
 	Warns []string
 	// NeedActorKeys is set when a proof was unchecked for want of its
-	// actor's keys.
+	// actor's keys, and OnlyKeys when that is the only reason any was.
 	NeedActorKeys bool
+	OnlyKeys      bool
 	// Depth is the token's visible actor-chain depth.
 	Depth int
 }
@@ -330,8 +333,12 @@ func (s *session) evalProofs(k int, at time.Time) proofChain {
 		pc.Each = append(pc.Each, s.checkProof(t, i, p, ref, refOK))
 	}
 	worst := chain.StatusPass
+	pc.OnlyKeys = true
 	for i, e := range pc.Each {
 		pc.NeedActorKeys = pc.NeedActorKeys || e.NeedKeys
+		if e.TimeUnknown {
+			pc.OnlyKeys = false
+		}
 		switch {
 		case e.Status == chain.StatusFail:
 			return fail(fmt.Sprintf("proof %d (%s): %s", i, pc.Proofs[i].label(), e.Detail))
@@ -487,9 +494,9 @@ func (s *session) checkProof(t *token, i int, p *proof, ref time.Time, refOK boo
 		// key keeps its hint.
 		const when = "the next token has no iat, so whether this proof still held when it was exchanged is unknown"
 		if sig.Status == chain.StatusPass {
-			return proofCheck{Status: chain.StatusUnchecked, Detail: when}
+			return proofCheck{Status: chain.StatusUnchecked, TimeUnknown: true, Detail: when}
 		}
-		return proofCheck{Status: sig.Status, NeedKeys: sig.NeedKeys, Detail: sig.Detail + "; and " + when}
+		return proofCheck{Status: sig.Status, NeedKeys: sig.NeedKeys, TimeUnknown: true, Detail: sig.Detail + "; and " + when}
 	case !ref.Add(-s.skew).Before(*p.Exp):
 		return proofCheck{Status: chain.StatusFail, Detail: "expired at " + stamp(*p.Exp) + "; an expired proof is rejected even for an older hop"}
 	case ref.Add(s.skew).Before(*p.Iat):

@@ -391,3 +391,21 @@ func TestUnknownTimeKeepsTheSignatureResult(t *testing.T) {
 		t.Errorf("missing keys: %s %q", got.Status, got.Detail)
 	}
 }
+
+// A proof unchecked for want of keys and for an unknown time is reported
+// for both: adding the keys alone would leave the chain INCOMPLETE.
+func TestIncompleteReasonNamesEveryCause(t *testing.T) {
+	pc := newProofCase()
+	pc.token["aud"] = demoOkta
+	pc.newer["target"] = map[string]any{"aud": demoOkta}
+	delete(pc.token, "actor_proofs_complete")
+	t0 := pc.mint()
+	t1 := mint(keyOkta, "at+jwt", map[string]any{
+		"iss": demoOkta, "sub": demoUser, "aud": demoAPI, "exp": unix(base.Add(20 * time.Minute)),
+		"act": act("summary-agent", "ai_agent", act("research-agent", "ai_agent", act("planner-agent", "ai_agent", nil))),
+	})
+	c := evalProofs([]string{t0, t1}, keyOkta, keyResearch)
+	if c.Verdict != chain.VerdictIncomplete || !strings.Contains(c.IncompleteReason, "no actor keys") || !strings.Contains(c.IncompleteReason, "J11") {
+		t.Errorf("%s: %q", c.Verdict, c.IncompleteReason)
+	}
+}
