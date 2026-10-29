@@ -43,6 +43,7 @@ const (
 	RuleSubject   = "J9"
 	RuleExpiry    = "J10"
 	RuleProof     = "J11"
+	RuleChain     = "J12"
 )
 
 // bundleRule marks the rules that compare one token of a bundle with the
@@ -66,6 +67,7 @@ var format = chain.Format{
 		{ID: RuleSubject, Title: "subject", Spec: bundleRule + " (section 4.1, sub)"},
 		{ID: RuleExpiry, Title: "expiry", Spec: bundleRule + " (RFC 7519 section 4.1.4, exp)"},
 		{ID: RuleProof, Title: "actor proof", Spec: specProofs + " section 7; whosent fails the token on a rejected chain, where the draft only drops the evidence"},
+		{ID: RuleChain, Title: "actor chain", Spec: specChain + " section 18; whosent knows no cross-domain subject mapping and calls no introspection endpoint"},
 	},
 }
 
@@ -104,7 +106,7 @@ func (Adapter) Detect(data []byte) chain.Confidence {
 	case typIDJAG, typTxnToken:
 		return chain.Certain
 	}
-	for _, k := range []string{"act", "may_act", "xms_act_fct"} {
+	for _, k := range []string{"act", "may_act", "xms_act_fct", "actp"} {
 		if _, ok := claims[k]; ok {
 			return chain.Certain
 		}

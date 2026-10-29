@@ -1,13 +1,19 @@
 package jwt
 
 import (
+	"crypto"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/sha256"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -27,6 +33,10 @@ const (
 	demoAPI    = "https://api.acme.example"
 	demoSaaSAS = "https://auth.saas.example"
 	demoUser   = "alice@acme.example"
+	// demoChainAS issues the Actor Chain demos, and demoAgents names their
+	// actors.
+	demoChainAS = "https://as.acme.example"
+	demoAgents  = "https://agents.acme.example"
 )
 
 type demoKey struct {
@@ -35,6 +45,28 @@ type demoKey struct {
 	key ed25519.PrivateKey
 	// sub is set for an actor's key: the actor is (iss, sub).
 	sub string
+	// ec signs Actor Chain artifacts, which must be ES256 (section 23 of
+	// the draft). Signing with no random source is RFC 6979, so these too
+	// are the same bytes every time.
+	ec    *ecdsa.PrivateKey
+	ecKid string
+}
+
+// withEC adds a P-256 key derived from seed.
+func (k demoKey) withEC(kid, seed string) demoKey {
+	d := sha256.Sum256([]byte("whosent jwt demo es256 " + seed))
+	priv, err := ecdsa.ParseRawPrivateKey(elliptic.P256(), d[:])
+	if err != nil {
+		panic(err) // a fixed seed below the curve order always parses
+	}
+	k.ec, k.ecKid = priv, kid
+	return k
+}
+
+// newChainActor is an Actor Chain actor: it signs step proofs only.
+func newChainActor(sub, seed string) demoKey {
+	k := demoKey{iss: demoAgents, sub: sub}.withEC(sub+"-es256", seed)
+	return k
 }
 
 func newDemoKey(iss, kid, seed string) demoKey {
@@ -57,6 +89,12 @@ var (
 	keyResearch = newActorKey("research-agent", "research")
 	// keyForger claims the planner's kid; the planner never held it.
 	keyForger = newActorKey("planner-agent", "forger")
+
+	keyChainAS       = newDemoKey(demoChainAS, "as-2026", "chain-as").withEC("as-actc-2026", "chain-as")
+	keyChainPlanner  = newChainActor("planner-agent", "chain-planner")
+	keyChainResearch = newChainActor("research-agent", "chain-research")
+	// keyChainForger claims the chain planner's kid.
+	keyChainForger = newChainActor("planner-agent", "chain-forger")
 )
 
 // actorProof is the proof an actor signs when it is added as the token's
@@ -79,9 +117,13 @@ func actorProof(k demoKey, base time.Time, signed time.Duration, aud string, old
 
 // jwks is the published key document for a demo key.
 func (k demoKey) jwks() []byte {
-	set := jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{
-		Key: k.key.Public(), KeyID: k.kid, Algorithm: string(jose.EdDSA), Use: "sig",
-	}}}
+	var set jose.JSONWebKeySet
+	if k.key != nil {
+		set.Keys = append(set.Keys, jose.JSONWebKey{Key: k.key.Public(), KeyID: k.kid, Algorithm: string(jose.EdDSA), Use: "sig"})
+	}
+	if k.ec != nil {
+		set.Keys = append(set.Keys, jose.JSONWebKey{Key: k.ec.Public(), KeyID: k.ecKid, Algorithm: string(jose.ES256), Use: "sig"})
+	}
 	b, err := json.MarshalIndent(set, "", "  ")
 	if err != nil {
 		panic(err) // a fixed, well-formed key always marshals
@@ -102,6 +144,131 @@ func mint(k demoKey, typ string, claims map[string]any) string {
 	input := base64.RawURLEncoding.EncodeToString(h) + "." + base64.RawURLEncoding.EncodeToString(p)
 	sig := ed25519.Sign(k.key, []byte(input))
 	return input + "." + base64.RawURLEncoding.EncodeToString(sig)
+}
+
+// mintES signs an Actor Chain artifact with the key's ES256 half, under the
+// closed header the draft requires: alg, kid and typ, nothing else.
+func mintES(k demoKey, typ string, claims map[string]any, edit func(map[string]any)) string {
+	header := map[string]any{"alg": "ES256", "kid": k.ecKid, "typ": typ}
+	if edit != nil {
+		edit(header)
+	}
+	h, _ := json.Marshal(header)
+	p, _ := json.Marshal(claims)
+	input := base64.RawURLEncoding.EncodeToString(h) + "." + base64.RawURLEncoding.EncodeToString(p)
+	sum := sha256.Sum256([]byte(input))
+	der, err := k.ec.Sign(nil, sum[:], crypto.SHA256)
+	if err != nil {
+		panic(err) // a P-256 key always signs a SHA-256 digest
+	}
+	var sig struct{ R, S *big.Int }
+	if _, err := asn1.Unmarshal(der, &sig); err != nil {
+		panic(err)
+	}
+	raw := make([]byte, 64)
+	sig.R.FillBytes(raw[:32])
+	sig.S.FillBytes(raw[32:])
+	return input + "." + base64.RawURLEncoding.EncodeToString(raw)
+}
+
+// chainStepDemo is one actor's transition in an Actor Chain demo.
+type chainStepDemo struct {
+	signer   demoKey
+	actor    demoKey
+	resource string
+	scope    string
+}
+
+// chainHops are the Actor Chain demos' workflow: the planner asks for the
+// research service, and the research agent for the API, with less scope.
+func chainHops(planner demoKey) []chainStepDemo {
+	return []chainStepDemo{
+		{signer: planner, actor: keyChainPlanner, resource: "https://research.acme.example", scope: "files:read files:write"},
+		{signer: keyChainResearch, actor: keyChainResearch, resource: demoAPI, scope: "files:read"},
+	}
+}
+
+// chainEdits change an Actor Chain demo as it is minted, for tests: each
+// is called with the hop's index and the claims or header about to be
+// signed.
+type chainEdits struct {
+	proof  func(i int, c map[string]any)
+	acc    func(i int, c map[string]any)
+	header func(i int, h map[string]any)
+	token  func(i int, c map[string]any)
+}
+
+// mintActorChain mints a verified-full workflow, one step per hop, and the
+// token each hop received, carrying path evidence for every step so far.
+func mintActorChain(base time.Time, hops []chainStepDemo, ed *chainEdits) []string {
+	const acti, actp = "wf-2b7e1f0c9d4a", "verified-full"
+	if ed == nil {
+		ed = &chainEdits{}
+	}
+	call := func(f func(int, map[string]any), i int, m map[string]any) {
+		if f != nil {
+			f(i, m)
+		}
+	}
+	var steps []any
+	var view []any
+	var ids []actorID
+	var act map[string]any
+	var tokens []string
+	prev := ""
+	for i, h := range hops {
+		id := map[string]any{"iss": h.actor.iss, "sub": h.actor.sub}
+		view = append(view, id)
+		ids = append(ids, actorID{Iss: h.actor.iss, Sub: h.actor.sub})
+		salt := sha256.Sum256([]byte("whosent jwt demo salt " + h.actor.sub))
+		o := &opening{Salt: salt[:], Act: slices.Clone(ids)}
+		kind := "root"
+		if i > 0 {
+			kind = "extend"
+		}
+		signed := base.Add(time.Duration(i-len(hops)) * 5 * time.Minute)
+		target := map[string]any{"resource": h.resource}
+		if h.scope != "" {
+			target["scope"] = h.scope
+		}
+		proof := map[string]any{
+			"v": 2, "kind": kind, "actp": actp, "acti": acti, "actor": id, "sub": demoUser,
+			"accepting_issuer": demoChainAS, "target_context": target,
+			"view_commitment": o.commitment(), "request_id": fmt.Sprintf("req-%d-%s", i, h.actor.sub), "iat": unix(signed),
+		}
+		acc := map[string]any{
+			"v": 2, "kind": kind, "iss": demoChainAS, "acti": acti, "actp": actp,
+			"accepted_at": unix(signed.Add(2 * time.Second)),
+		}
+		if i > 0 {
+			proof["prev"], acc["prev"] = prev, prev
+		}
+		call(ed.proof, i, proof)
+		pr := mintES(h.signer, typActStep, proof, func(hd map[string]any) { call(ed.header, i, hd) })
+		acc["step_hash"] = digest(pr)
+		call(ed.acc, i, acc)
+		ac := mintES(keyChainAS, typActc, acc, func(hd map[string]any) { call(ed.header, i, hd) })
+		prev = digest(ac)
+		steps = append(steps, map[string]any{"proof": pr, "acceptance": ac,
+			"opening": map[string]any{"salt": base64.RawURLEncoding.EncodeToString(salt[:]), "act": slices.Clone(view)}})
+		node := map[string]any{"iss": h.actor.iss, "sub": h.actor.sub}
+		if act != nil {
+			node["act"] = act
+		}
+		act = node
+		claims := map[string]any{
+			"iss": demoChainAS, "sub": demoUser, "aud": h.resource, "jti": fmt.Sprintf("at-5e0a-%d", i),
+			"iat": unix(signed.Add(3 * time.Second)), "exp": unix(base.Add(9 * time.Minute)),
+			"scope": h.scope, "actp": actp, "acti": acti, "act": act, "actc": ac,
+			"acte": map[string]any{"v": 1, "coverage": "path", "delivery": "inline", "steps": slices.Clone(steps)},
+		}
+		if h.scope == "" {
+			delete(claims, "scope")
+		}
+		call(ed.token, i, claims)
+		tokens = append(tokens, mint(keyChainAS, "at+jwt", claims))
+	}
+	return tokens
 }
 
 // unsigned is a token with alg "none": the attack RFC 8725 section 3.1
@@ -192,6 +359,11 @@ func scenarioDefs() []scenarioDef {
 		return demo{tokens: []string{mint(keyOkta, "at+jwt", claims)}, keys: []demoKey{keyOkta},
 			actors: []demoKey{keyPlanner, keyResearch}, audience: demoAPI}
 	}
+	actorChain := func(base time.Time, planner demoKey) demo {
+		toks := mintActorChain(base, chainHops(planner), nil)
+		return demo{tokens: toks[len(toks)-1:], keys: []demoKey{keyChainAS},
+			actors: []demoKey{keyChainPlanner, keyChainResearch}, audience: demoAPI}
+	}
 	return []scenarioDef{
 		{"jwt-okta-style", "One token, three actors",
 			"an Okta-style access token: alice, then a chat UI, a planner and a research agent in nested act claims. The token verifies; the prior actors are the issuer's word.",
@@ -272,6 +444,12 @@ func scenarioDefs() []scenarioDef {
 		{"jwt-actor-proofs-forged", "A proof the planner never signed",
 			"the token names the planner and carries a proof for it, but another key signed that proof: the planner's part in the chain is the issuer's say-so.",
 			func(base time.Time) demo { return proofs(base, keyForger) }},
+		{"jwt-actor-chain", "Accepted hop by hop",
+			"an Actor Chain token (verified-full) with path evidence: the planner and the research agent each signed a step proof, and the authorization server signed its acceptance of each, hash-linked from the root.",
+			func(base time.Time) demo { return actorChain(base, keyChainPlanner) }},
+		{"jwt-actor-chain-forged", "A step the planner never signed",
+			"the path evidence carries a step proof for the planner that another key signed: the server accepted it, but the planner's part is the issuer's word.",
+			func(base time.Time) demo { return actorChain(base, keyChainForger) }},
 		{"jwt-unchecked", "Nothing to check against",
 			"the Okta-style token with no keys and no audience: nothing fails, and nothing is verified.",
 			func(base time.Time) demo {

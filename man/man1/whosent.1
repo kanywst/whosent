@@ -33,7 +33,9 @@ as
 .IR asserted ,
 never as verified, unless the token carries actor proofs
 (draft-mcguinness-oauth-actor-proofs) that every covered actor signed and the
-trust file names the actors' keys for. Several tokens from successive
+trust file names the actors' keys for, or Actor Chain evidence
+(draft-mw-oauth-actor-chain) that each actor signed and the authorization
+server accepted. Several tokens from successive
 exchanges, oldest first, are checked hop by hop; those hop rules (J7 to J10) are whosent's own consistency
 checks, not a procedure any specification defines.
 .TP
@@ -162,7 +164,8 @@ could claim is refused rather than guessed at.
 .BI \-\-trust " FILE"
 A trust file mapping issuers to their key documents:
 .B {"issuers": {"ISSUER": {"jwks_file": "PATH"} | {"jwks_url": "https://..."}}}.
-An optional \fBactors\fR list names the keys actors sign actor proofs with:
+An optional \fBactors\fR list names the keys actors sign actor proofs or
+Actor Chain step proofs with:
 .B "actors": [{"iss": "ACT_ISS", "sub": "ACT_SUB", "jwks_file": "PATH"}].
 An actor is named by the pair, never by \fBsub\fR alone.
 A relative \fBjwks_file\fR is resolved against the trust file's directory.
@@ -299,6 +302,15 @@ section 7). Each proof is signed by its actor's own key, hash-linked by
 \fBprh\fR, aligned with the \fBact\fR chain and unexpired, and the token stays
 within the newest actor's consented \fBtarget\fR. A rejected chain fails
 the token; the draft itself only drops the evidence.
+.TP
+.B J12
+Actor chain: the token's Actor Chain profile (draft-mw-oauth-actor-chain
+section 18). \fBactp\fR, \fBacti\fR, the server's signed acceptance
+\fBactc\fR and any inline evidence \fBacte\fR: each step proof signed by
+its actor, each acceptance by its server, hash-linked by \fBstep_hash\fR and
+\fBprev\fR, path openings matching their commitments, and the token within
+the current actor's resource and scope. Evidence delivered by introspection
+is not fetched.
 .PP
 J7 to J10 are whosent's consistency checks, derived from RFC 8693; no
 specification defines them as a verification procedure.

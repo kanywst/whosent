@@ -46,7 +46,7 @@ The format is recognised from the input; `--format` picks one when it is ambiguo
 
 ### JWT token exchange
 
-One token with nested `act` claims, or a bundle of exchanged tokens, oldest first. Also ID-JAG, Txn-Tokens and Entra agent tokens. Prior actors in one token are the issuer's word (RFC 8693 section 4.1), so they are drawn as asserted, not verified, unless the token carries actor proofs (draft-mcguinness-oauth-actor-proofs): then each covered actor signed its own hop, and with its keys in the trust file it is drawn as the actor's own word. J7 to J10 are whosent's own checks between exchanges, not a standard procedure.
+One token with nested `act` claims, or a bundle of exchanged tokens, oldest first. Also ID-JAG, Txn-Tokens and Entra agent tokens. Prior actors in one token are the issuer's word (RFC 8693 section 4.1), so they are drawn as asserted, not verified, unless the token carries actor proofs (draft-mcguinness-oauth-actor-proofs): then each covered actor signed its own hop, and with its keys in the trust file it is drawn as the actor's own word. The same holds for an Actor Chain token (draft-mw-oauth-actor-chain) whose path or disclosed evidence each actor signed and the authorization server accepted. J7 to J10 are whosent's own checks between exchanges, not a standard procedure.
 
 | Rule | Checks |
 | :--: | :--- |
@@ -61,6 +61,7 @@ One token with nested `act` claims, or a bundle of exchanged tokens, oldest firs
 | J9 | the subject does not change across an exchange |
 | J10 | an exchanged token expires no later than the token it replaced |
 | J11 | the token's `actor_proofs`: each proof signed by its actor's own key, hash-linked by `prh`, aligned with the `act` chain, unexpired, and the token within the newest actor's consented `target`. A rejected chain fails the token; the draft itself only drops the evidence |
+| J12 | an Actor Chain profile (`actp`, `acti`, `actc`, `acte`): the server's signed acceptance of the latest hop, and any inline evidence: each step proof signed by its actor, each acceptance by its server, hash-linked by `step_hash` and `prev`, path openings matching their commitments, and the token within the current actor's resource and scope. Introspected evidence is not fetched |
 
 ### Biscuit
 
@@ -124,10 +125,10 @@ whosent check tokens.json --trust trust.json --audience https://api.acme.example
 
 ❌ INVALID: the chain breaks at link 2, and no authority reaches below it
 
-  #  issuer → subject                   J1 J2 J3 J4 J5 J6 J7 J8 J9 J10 J11
-  0  alice@acme.example → chat-ui        ✓  ✓  ✓  ·  ✓  ·  ·  ·  ·   ·   ·
-  1  chat-ui → planner-agent             ✓  ✓  ✓  ·  ✓  ✓  ✓  ✓  ✓   ✓   ·
-  2  planner-agent → research-agent      ✓  ✓  ✓  ✓  ✓  ✓  ✓  ✗  ✓   ✓   ·
+  #  issuer → subject                   J1 J2 J3 J4 J5 J6 J7 J8 J9 J10 J11 J12
+  0  alice@acme.example → chat-ui        ✓  ✓  ✓  ·  ✓  ·  ·  ·  ·   ·   ·   ·
+  1  chat-ui → planner-agent             ✓  ✓  ✓  ·  ✓  ✓  ✓  ✓  ✓   ✓   ·   ·
+  2  planner-agent → research-agent      ✓  ✓  ✓  ✓  ✓  ✓  ✓  ✗  ✓   ✓   ·   ·
      ✓ pass  ✗ fail  ! could not evaluate  ? not checked  - skipped  · does not apply
 
 Findings
@@ -198,7 +199,7 @@ The trust file:
 ]}
 ```
 
-`actors` is optional. An actor is named by the pair (`act.iss`, `act.sub`), and its keys are the ones it signs actor proofs with; they must come from somewhere other than the issuer, or the proofs cannot expose an issuer that invents an actor.
+`actors` is optional. An actor is named by the pair (`act.iss`, `act.sub`), and its keys are the ones it signs actor proofs or Actor Chain step proofs with; they must come from somewhere other than the issuer, or the proofs cannot expose an issuer that invents an actor.
 
 ## Keybindings
 

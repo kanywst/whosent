@@ -16,6 +16,10 @@ func (s *session) hop(plans []plan, a, b int) chain.Hop {
 		// before. Nothing about it can be compared.
 		h.Changes = []chain.Change{{Kind: chain.ChangeInfo, Text: fmt.Sprintf("acts for %s, as the issuer states", linkTo(pa))}}
 		switch {
+		case pb.chained && pa.chained && pb.cover == "path":
+			h.Changes[0].Text = fmt.Sprintf("acts for %s; its step is hash-linked to %s's acceptance", linkTo(pa), linkTo(pa))
+		case pb.chained:
+			h.Changes[0].Text = fmt.Sprintf("acts for %s, as the issuer attests; it signed its own hop", linkTo(pa))
 		case pb.signed && pa.signed:
 			// The older proof omits prh only when it is the oldest, so a
 			// signed link after a signed one is hash-linked to it.
