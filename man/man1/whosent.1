@@ -310,7 +310,7 @@ section 18). \fBactp\fR, \fBacti\fR, the server's signed acceptance
 its actor, each acceptance by its server, hash-linked by \fBstep_hash\fR and
 \fBprev\fR, path openings matching their commitments, and the token within
 the current actor's resource and scope. Evidence delivered by introspection
-is not fetched.
+is not fetched, so the rule is unchecked.
 .PP
 J7 to J10 are whosent's consistency checks, derived from RFC 8693; no
 specification defines them as a verification procedure.

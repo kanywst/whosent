@@ -61,7 +61,7 @@ One token with nested `act` claims, or a bundle of exchanged tokens, oldest firs
 | J9 | the subject does not change across an exchange |
 | J10 | an exchanged token expires no later than the token it replaced |
 | J11 | the token's `actor_proofs`: each proof signed by its actor's own key, hash-linked by `prh`, aligned with the `act` chain, unexpired, and the token within the newest actor's consented `target`. A rejected chain fails the token; the draft itself only drops the evidence |
-| J12 | an Actor Chain profile (`actp`, `acti`, `actc`, `acte`): the server's signed acceptance of the latest hop, and any inline evidence: each step proof signed by its actor, each acceptance by its server, hash-linked by `step_hash` and `prev`, path openings matching their commitments, and the token within the current actor's resource and scope. Introspected evidence is not fetched |
+| J12 | an Actor Chain profile (`actp`, `acti`, `actc`, `acte`): the server's signed acceptance of the latest hop, and any inline evidence: each step proof signed by its actor, each acceptance by its server, hash-linked by `step_hash` and `prev`, path openings matching their commitments, and the token within the current actor's resource and scope. Introspected evidence is not fetched, so it leaves the rule unchecked |
 
 ### Biscuit
 

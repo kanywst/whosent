@@ -254,7 +254,7 @@ func (s *session) link(i int, p plan, from string, at time.Time, ev evidence) ch
 			l.Findings = append(l.Findings, chain.Finding{Rule: RuleProof, Link: i, Hop: -1, Severity: chain.SeverityWarn, Detail: w})
 		}
 	}
-	if ac.Status == chain.StatusPass {
+	if ac.Status == chain.StatusPass || ac.Status == chain.StatusUnchecked {
 		for _, n := range ac.Notes {
 			l.Findings = append(l.Findings, chain.Finding{Rule: RuleChain, Link: i, Hop: -1, Severity: chain.SeverityInfo, Detail: n})
 		}

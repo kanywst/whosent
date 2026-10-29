@@ -94,7 +94,7 @@ func TestActorChain(t *testing.T) {
 		}), chainKeys, chain.StatusFail, "not a pairing", false},
 		{"introspection delivery is not fetched", retoken(func(c map[string]any) {
 			c["acte"] = map[string]any{"v": 1, "coverage": "path", "delivery": "introspection"}
-		}), chainKeys, chain.StatusPass, "not fetched", false},
+		}), chainKeys, chain.StatusUnchecked, "does not call", false},
 		{"path evidence only under verified-full", lastToken(&chainEdits{
 			proof: func(_ int, c map[string]any) { c["actp"] = "verified-subset" },
 			acc:   func(_ int, c map[string]any) { c["actp"] = "verified-subset" },
@@ -280,4 +280,23 @@ func mintPayload(k demoKey, header map[string]any, payload []byte) string {
 	h, _ := json.Marshal(header)
 	input := base64.RawURLEncoding.EncodeToString(h) + "." + base64.RawURLEncoding.EncodeToString(payload)
 	return input + "." + base64.RawURLEncoding.EncodeToString(ed25519.Sign(k.key, []byte(input)))
+}
+
+// An actc from a server other than the token's issuer is allowed after
+// preservation, but one token alone does not show that, so it is said.
+func TestActorChainWarnsOfAnotherServersAcceptance(t *testing.T) {
+	other := keyChainAS
+	other.iss = "https://edge.acme.example"
+	toks := mintActorChain(base, chainHops(keyChainPlanner), &chainEdits{token: func(_ int, c map[string]any) { c["iss"] = other.iss }})
+	c := evalChain(toks[1:], append(chainKeys, other)...)
+	leaf := c.Leaf()
+	if got := leaf.Check(RuleChain); got.Status != chain.StatusPass {
+		t.Fatalf("J12 = %s %q, want pass", got.Status, got.Detail)
+	}
+	for _, f := range leaf.Findings {
+		if f.Rule == RuleChain && f.Severity == chain.SeverityWarn && strings.Contains(f.Detail, "not the token's issuer") {
+			return
+		}
+	}
+	t.Errorf("no warning that actc came from another server: %v", leaf.Findings)
 }

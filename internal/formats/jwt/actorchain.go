@@ -506,6 +506,13 @@ func (s *session) evalActorChain(k int) actorChain {
 	if p := s.chainLinkage(k, acc, acti, name, &ac); p != "" {
 		return fail(p)
 	}
+	// After preservation the acceptance issuer may differ from the token's
+	// (section 18.1), so it is not failed; but only a bundle showing the
+	// preserved head confirms that is what happened.
+	preserved := k > 0 && str(s.tokens[k-1].Claims, "actc") == head
+	if acc.Iss != t.Iss && !preserved {
+		ac.Warns = append(ac.Warns, fmt.Sprintf("actc was accepted by %s, not the token's issuer %s: that the state was preserved across servers is not shown", acc.Iss, t.Iss))
+	}
 
 	if !hasActe {
 		ac.Notes = append(ac.Notes, "the token carries no acte: actc shows the authorization server accepted the hop, and no actor's own signature is in the token (commitment only)")
@@ -525,8 +532,14 @@ func (s *session) evalActorChain(k int) actorChain {
 		return fail(env.Coverage + " evidence covers the current actor, and the token's act discloses none (section 12)")
 	}
 	if env.Delivery == "introspection" {
-		ac.Notes = append(ac.Notes, fmt.Sprintf("the %s evidence is delivered by introspection, which whosent does not call: only actc is checked, and no actor's own signature", env.Coverage))
-		return s.settleChain(ac, fmt.Sprintf("%s, accepted by %s; %s evidence not fetched", name, acc.Iss, env.Coverage))
+		// The token promises evidence whosent never sees, so that part is
+		// unchecked, not passed: actc alone is not what was promised.
+		ac = s.settleChain(ac, "")
+		if ac.Status == chain.StatusPass || ac.Status == chain.StatusUnchecked {
+			ac.Status, ac.OnlyKeys = chain.StatusUnchecked, false
+			ac.Detail = fmt.Sprintf("the %s evidence is delivered by introspection, which whosent does not call: only actc was checked", env.Coverage)
+		}
+		return ac
 	}
 
 	switch env.Coverage {
