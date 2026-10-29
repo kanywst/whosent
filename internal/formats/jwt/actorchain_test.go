@@ -105,7 +105,7 @@ func TestActorChain(t *testing.T) {
 			c["actp"] = "declared-full"
 			delete(c, "actc")
 			delete(c, "acte")
-		}), chainKeys, chain.StatusPass, "issuer's assertion", false},
+		}), chainKeys, chain.StatusNotApplicable, "issuer's assertion", false},
 		{"an unknown profile fails closed", retoken(func(c map[string]any) { c["actp"] = "verified-everything" }), chainKeys, chain.StatusFail, "not a profile", false},
 		{"acti without actp", retoken(func(c map[string]any) { delete(c, "actp") }), chainKeys, chain.StatusFail, "acti without actp", false},
 		{"an act member with more than iss and sub", retoken(func(c map[string]any) {

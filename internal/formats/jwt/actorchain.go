@@ -477,8 +477,10 @@ func (s *session) evalActorChain(k int) actorChain {
 		if p := s.chainLinkage(k, nil, acti, name, &ac); p != "" {
 			return fail(p)
 		}
-		ac.Status = chain.StatusPass
-		ac.Detail = name + ": the actor chain is the issuer's assertion, with no actor proof or acceptance"
+		// Nothing is signed to check, so a well-formed Declared token is
+		// not a pass: a check mark would read as verified.
+		ac.Status = chain.StatusNotApplicable
+		ac.Detail = name + ": the actor chain is the issuer's assertion, with no actor proof or acceptance to check"
 		return ac
 	}
 	head, ok := t.Claims["actc"].(string)
