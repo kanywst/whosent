@@ -394,6 +394,9 @@ type actorChain struct {
 	Notes  []string
 	// Warns hold but should be looked at.
 	Warns []string
+	// Foreign says why the head acceptance, from another server than the
+	// token's issuer, is not shown to belong to this token.
+	Foreign string
 	// NeedActorKeys and NeedServerKeys are set when a signature was
 	// unchecked for want of an actor's or a server's keys, and OnlyKeys
 	// when that is the only reason anything was.
@@ -508,10 +511,11 @@ func (s *session) evalActorChain(k int) actorChain {
 	}
 	// After preservation the acceptance issuer may differ from the token's
 	// (section 18.1), so it is not failed; but only a bundle showing the
-	// preserved head confirms that is what happened.
+	// preserved head confirms that is what happened, and without one any
+	// configured issuer could vouch for this token's chain.
 	preserved := k > 0 && str(s.tokens[k-1].Claims, "actc") == head
 	if acc.Iss != t.Iss && !preserved {
-		ac.Warns = append(ac.Warns, fmt.Sprintf("actc was accepted by %s, not the token's issuer %s: that the state was preserved across servers is not shown", acc.Iss, t.Iss))
+		ac.Foreign = fmt.Sprintf("actc was accepted by %s, not the token's issuer %s: that the state was preserved across servers is not shown; give the token it was exchanged from", acc.Iss, t.Iss)
 	}
 
 	if !hasActe {
@@ -624,7 +628,10 @@ func (s *session) settleChain(ac actorChain, passDetail string) actorChain {
 			ac.OnlyKeys = false
 		}
 	}
-	if ac.Status == chain.StatusPass {
+	switch {
+	case ac.Status == chain.StatusPass && ac.Foreign != "":
+		ac.Status, ac.Detail, ac.OnlyKeys = chain.StatusUnchecked, ac.Foreign, false
+	case ac.Status == chain.StatusPass:
 		ac.Detail = passDetail
 	}
 	return ac

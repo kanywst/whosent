@@ -1,6 +1,8 @@
 package jwt
 
 import (
+	"slices"
+
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
@@ -283,20 +285,23 @@ func mintPayload(k demoKey, header map[string]any, payload []byte) string {
 }
 
 // An actc from a server other than the token's issuer is allowed after
-// preservation, but one token alone does not show that, so it is said.
-func TestActorChainWarnsOfAnotherServersAcceptance(t *testing.T) {
+// preservation, but one token alone does not show that, so the rule is
+// unchecked; the token it was exchanged from, carrying the same head,
+// settles it.
+func TestActorChainAnotherServersAcceptance(t *testing.T) {
 	other := keyChainAS
 	other.iss = "https://edge.acme.example"
-	toks := mintActorChain(base, chainHops(keyChainPlanner), &chainEdits{token: func(_ int, c map[string]any) { c["iss"] = other.iss }})
-	c := evalChain(toks[1:], append(chainKeys, other)...)
-	leaf := c.Leaf()
-	if got := leaf.Check(RuleChain); got.Status != chain.StatusPass {
-		t.Fatalf("J12 = %s %q, want pass", got.Status, got.Detail)
+	toks := mintActorChain(base, chainHops(keyChainPlanner), nil)
+	moved := mintActorChain(base, chainHops(keyChainPlanner), &chainEdits{token: func(_ int, c map[string]any) { c["iss"] = other.iss }})
+	keys := append(slices.Clone(chainKeys), other)
+	c := evalChain(moved[1:], keys...)
+	if got := c.Leaf().Check(RuleChain); got.Status != chain.StatusUnchecked || !strings.Contains(got.Detail, "not the token's issuer") {
+		t.Fatalf("J12 = %s %q, want unchecked", got.Status, got.Detail)
 	}
-	for _, f := range leaf.Findings {
-		if f.Rule == RuleChain && f.Severity == chain.SeverityWarn && strings.Contains(f.Detail, "not the token's issuer") {
-			return
-		}
+	// Preserved: the edge server reissued the research agent's token with
+	// the same head.
+	c = evalChain([]string{toks[1], moved[1]}, keys...)
+	if got := c.Links[len(c.Links)-1].Check(RuleChain); got.Status == chain.StatusUnchecked && strings.Contains(got.Detail, "not the token's issuer") {
+		t.Fatalf("a preserved head is still questioned: %q", got.Detail)
 	}
-	t.Errorf("no warning that actc came from another server: %v", leaf.Findings)
 }
