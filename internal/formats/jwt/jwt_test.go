@@ -69,6 +69,8 @@ func TestEveryScenarioShowsWhatItSays(t *testing.T) {
 		{"jwt-id-jag", chain.VerdictValid, -1, nil, 0, 1},
 		{"jwt-actor-proofs", chain.VerdictValid, -1, nil, 0, 2},
 		{"jwt-actor-proofs-forged", chain.VerdictInvalid, 1, []string{RuleProof}, 1, 2},
+		{"jwt-actor-chain", chain.VerdictValid, -1, nil, 0, 2},
+		{"jwt-actor-chain-forged", chain.VerdictInvalid, 1, []string{RuleChain}, 1, 2},
 		{"jwt-unchecked", chain.VerdictIncomplete, -1, nil, 2, 3},
 	}
 	if got, want := len(tests), len(New().Scenarios()); got != want {

@@ -118,6 +118,8 @@ func TestDump(t *testing.T) {
 		{"jwt-unchecked", "jwt-unchecked", nil},
 		{"jwt-proofs", "jwt-actor-proofs", []string{"left"}},
 		{"jwt-proofs-forged", "jwt-actor-proofs-forged", nil},
+		{"jwt-chain", "jwt-actor-chain", []string{"left"}},
+		{"jwt-chain-forged", "jwt-actor-chain-forged", nil},
 		{"biscuit-denied", "biscuit-denied", nil},
 		{"ucan-healthy", "ucan-healthy", nil},
 		{"ucan-revoked", "ucan-revoked", nil},

@@ -220,10 +220,12 @@ func prhOf(alg, raw string) string {
 type proofCheck struct {
 	Status chain.Status
 	Detail string
-	// NeedKeys is set when the actor's keys were not given, and
+	// NeedKeys is set when the actor's keys were not given, NeedServerKeys
+	// when an authorization server's were (an Actor Chain acceptance), and
 	// TimeUnknown when the moment to judge the proof at is.
-	NeedKeys    bool
-	TimeUnknown bool
+	NeedKeys       bool
+	NeedServerKeys bool
+	TimeUnknown    bool
 }
 
 // proofChain is the result of section 7 for one token.
