@@ -236,7 +236,7 @@ func verifyWith(ik *issuerKeys, raw, alg, kid, who string) sigResult {
 		return sigResult{Status: chain.StatusFail, Detail: fmt.Sprintf("no kid, and %s publishes several keys; a verifier could not tell which is meant", who)}
 	}
 	key := candidates[0]
-	jws, err := jose.ParseSigned(raw, algorithms)
+	jws, err := jose.ParseSignedCompact(raw, algorithms)
 	if err != nil {
 		return sigResult{Status: chain.StatusFail, Detail: "the signature cannot be read: " + err.Error()}
 	}
