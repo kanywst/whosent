@@ -19,7 +19,7 @@ import (
 	"github.com/kanywst/whosent/pkg/chain"
 )
 
-// Actor Chain (draft-mw-oauth-actor-chain-02) is a different answer to the
+// Actor Chain (draft-mw-oauth-actor-chain-03) is a different answer to the
 // question actor proofs answer: the token carries a profile (actp), a
 // workflow identifier (acti) and, in a Verified profile, the authorization
 // server's signed acceptance of the latest hop (actc). Each actor's own
@@ -31,7 +31,7 @@ import (
 const (
 	typActStep = "oauth-act-step+jwt"
 	typActc    = "oauth-actc+jwt"
-	specChain  = "draft-mw-oauth-actor-chain-02"
+	specChain  = "draft-mw-oauth-actor-chain-03"
 	viewDomain = "urn:ietf:params:oauth:actor-chain:view:v1"
 )
 
@@ -71,7 +71,7 @@ type artifact struct {
 }
 
 // readArtifact reads a compact JWS held to the closed header of section 23:
-// exactly alg, kid and typ, and nothing a version 2 parser could ignore.
+// exactly alg, kid and typ, and nothing a parser of this format could ignore.
 func readArtifact(raw, typ string) (*artifact, string) {
 	if len(raw) > chainMaxBytes {
 		return nil, fmt.Sprintf("it is %d bytes, past the %d a compact artifact may be (section 22)", len(raw), chainMaxBytes)
@@ -249,11 +249,14 @@ func readAcceptance(raw string) (*acceptance, string) {
 	return acc, ""
 }
 
-// readKind reads v, which must be 2, and kind, which must be root or
-// extend: an unknown version or transition fails closed (section 6).
+// readKind reads v, which must be the JSON number 1, and kind, which must
+// be root or extend: an unknown version or transition fails closed
+// (section 6). Revision 03 unified every artifact on version 1; the
+// version 2 proofs and acceptances of revision 02 are rejected, not
+// converted, as the draft says.
 func readKind(c map[string]any) (string, string) {
-	if n, ok := c["v"].(json.Number); !ok || n.String() != "2" {
-		return "", fmt.Sprintf("v is %s, not 2", jsonValue(c["v"]))
+	if n, ok := c["v"].(json.Number); !ok || n.String() != "1" {
+		return "", fmt.Sprintf("v is %s, not 1: revision 03 of the draft accepts only version 1 artifacts (section 6)", jsonValue(c["v"]))
 	}
 	switch k := c["kind"].(type) {
 	case string:
@@ -857,8 +860,9 @@ type envStep struct {
 	opening           any
 }
 
-// readEnvelope reads acte (section 12): version 1 is current or path,
-// version 2 is disclosed, and no other pairing is accepted.
+// readEnvelope reads acte (section 12): version 1 carries current, path
+// or disclosed, and any other version or coverage is rejected. Revision
+// 02 put disclosed under version 2; that pairing is gone.
 func readEnvelope(v any) (*envelope, string) {
 	m, ok := v.(map[string]any)
 	if !ok {
@@ -869,10 +873,9 @@ func readEnvelope(v any) (*envelope, string) {
 	e.Coverage, _ = m["coverage"].(string)
 	e.Delivery, _ = m["delivery"].(string)
 	switch {
-	case ver.String() == "1" && (e.Coverage == "current" || e.Coverage == "path"):
-	case ver.String() == "2" && e.Coverage == "disclosed":
+	case ver.String() == "1" && (e.Coverage == "current" || e.Coverage == "path" || e.Coverage == "disclosed"):
 	default:
-		return nil, fmt.Sprintf("version %s with coverage %s is not a pairing the draft defines (section 12.1)", jsonValue(m["v"]), jsonValue(m["coverage"]))
+		return nil, fmt.Sprintf("version %s with coverage %s is not a pairing the draft defines: envelope version 1 carries current, path or disclosed (section 12.1)", jsonValue(m["v"]), jsonValue(m["coverage"]))
 	}
 	members := []string{"v", "coverage", "delivery"}
 	switch e.Delivery {
