@@ -232,12 +232,12 @@ func mintActorChain(base time.Time, hops []chainStepDemo, ed *chainEdits) []stri
 			target["scope"] = h.scope
 		}
 		proof := map[string]any{
-			"v": 2, "kind": kind, "actp": actp, "acti": acti, "actor": id, "sub": demoUser,
+			"v": 1, "kind": kind, "actp": actp, "acti": acti, "actor": id, "sub": demoUser,
 			"accepting_issuer": demoChainAS, "target_context": target,
 			"view_commitment": o.commitment(), "request_id": fmt.Sprintf("req-%d-%s", i, h.actor.sub), "iat": unix(signed),
 		}
 		acc := map[string]any{
-			"v": 2, "kind": kind, "iss": demoChainAS, "acti": acti, "actp": actp,
+			"v": 1, "kind": kind, "iss": demoChainAS, "acti": acti, "actp": actp,
 			"accepted_at": unix(signed.Add(2 * time.Second)),
 		}
 		if i > 0 {
