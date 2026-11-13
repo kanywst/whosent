@@ -88,12 +88,25 @@ func TestActorChain(t *testing.T) {
 			for _, st := range e["steps"].([]any) {
 				delete(st.(map[string]any), "opening")
 			}
-			e["v"], e["coverage"] = 2, "disclosed"
-		}), chainKeys, chain.StatusPass, "disclosed actors signed", true},
-		{"disclosed coverage under version 1", retoken(func(c map[string]any) {
-			e := c["acte"].(map[string]any)
 			e["coverage"] = "disclosed"
+		}), chainKeys, chain.StatusPass, "disclosed actors signed", true},
+		{"a version 2 envelope from revision 02", retoken(func(c map[string]any) {
+			e := c["acte"].(map[string]any)
+			for _, st := range e["steps"].([]any) {
+				delete(st.(map[string]any), "opening")
+			}
+			e["v"], e["coverage"] = 2, "disclosed"
 		}), chainKeys, chain.StatusFail, "not a pairing", false},
+		{"a version 2 step proof from revision 02", lastToken(&chainEdits{proof: func(i int, c map[string]any) {
+			if i == 1 {
+				c["v"] = 2
+			}
+		}}), chainKeys, chain.StatusFail, "v is 2, not 1", false},
+		{"a version 2 acceptance from revision 02", lastToken(&chainEdits{acc: func(i int, c map[string]any) {
+			if i == 1 {
+				c["v"] = 2
+			}
+		}}), chainKeys, chain.StatusFail, "v is 2, not 1", false},
 		{"introspection delivery is not fetched", retoken(func(c map[string]any) {
 			c["acte"] = map[string]any{"v": 1, "coverage": "path", "delivery": "introspection"}
 		}), chainKeys, chain.StatusUnchecked, "does not call", false},
