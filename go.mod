@@ -4,7 +4,7 @@ go 1.27.4
 
 require (
 	charm.land/bubbletea/v2 v2.1.1
-	charm.land/lipgloss/v2 v2.0.6
+	charm.land/lipgloss/v2 v2.1.0
 	filippo.io/edwards25519 v1.2.0
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1
