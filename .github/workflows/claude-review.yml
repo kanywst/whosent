@@ -82,7 +82,7 @@ jobs:
           echo "::error::the Claude review cannot run on a pull request that changes its own workflow; review it by hand"
           exit 1
 
-      - uses: anthropics/claude-code-action@4d75e5f390ee76b2e09c1980ecc99ff3a2e088c8 # v1
+      - uses: anthropics/claude-code-action@c84e279f859e2591391e95bd309286eb111c345f # v1
         with:
           # A subscription token, not an API key: runs against the Claude plan
           # instead of API credits. Generate it with `claude setup-token`.
