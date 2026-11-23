@@ -3,10 +3,10 @@ module github.com/kanywst/whosent
 go 1.27.4
 
 require (
-	charm.land/bubbletea/v2 v2.1.1
-	charm.land/lipgloss/v2 v2.1.0
+	charm.land/bubbletea/v2 v2.1.2
+	charm.land/lipgloss/v2 v2.1.1
 	filippo.io/edwards25519 v1.2.0
-	github.com/charmbracelet/x/ansi v0.11.9
+	github.com/charmbracelet/x/ansi v0.11.10
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1
 	github.com/go-jose/go-jose/v4 v4.1.9
 	github.com/spf13/cobra v1.10.2
